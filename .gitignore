@@ -1,0 +1,343 @@
+# Flutter/Dart/Pub-related
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+lib/generated_plugin_registrant.dart
+
+# iOS
+ios/.symlinks/
+ios/.generated/
+ios/**/*.mode1v3
+ios/**/*.mode2v3
+ios/**/*.moved-aside
+ios/**/*.pbxuser
+ios/**/*.perspectivev3
+ios/**/*sync/
+ios/**/.sconsign.dblite
+ios/**/.tags*
+ios/**/.vscode/
+ios/.vagrant/
+ios/**/DerivedData/
+ios/**/Icon?
+ios/**/Icon??
+ios/**/Icon???
+ios/**/Icon????
+ios/**/Icon?????
+ios/**/Icon??
+ios/**/Icon???
+ios/**/Icon????
+ios/**/Icon?????
+ios/**/.DS_Store
+ios/**/.dart_tool/
+ios/**/.flutter-plugins
+ios/**/.flutter-plugins-dependencies
+ios/**/.packages
+ios/**/.pub-cache/
+ios/**/.pub/
+ios/**/pubspec.lock
+ios/**/GeneratedPluginRegistrant.*
+.ios/Flutter/Flutter.podspec
+.ios/Flutter/Flutter.framework
+.ios/Flutter/GeneratedPluginRegistrant.*
+.ios/Flutter/ephemeralmodules.txt
+.ios/Flutter/flutter_export_environment.sh
+.ios/Flutter/flutter_export_environment.sh.bak
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+Pods/
+Podfile.lock
+
+# Android
+.gradle
+.gradle/
+android/.gradle
+android/.gradle/
+android/app/debug
+android/app/profile
+android/app/release
+android/app/.gradle
+android/app/.gradle/
+android/.idea/
+android/local.properties
+android/key.properties
+local.properties
+*.jks
+*.keystore
+
+# Web
+web/.dart_tool/
+web/dart_service_worker.js
+
+# Coverage
+coverage/
+
+# Exceptions to above rules
+!/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
+
+# Dependencies
+pubspec.lock
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+.idea_modules/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be committed to version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub-related
+**/doc/api/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+pubspec.lock
+
+# Android Studio will place build artifacts here
+android/app/debug/
+android/app/release/
+android/.gradle/
+android/local.properties
+android/key.properties
+*.jks
+*.keystore
+
+# iOS/macOS
+**/ios/**/*.mode1v3
+**/ios/**/*.mode2v3
+**/ios/**/*.moved-aside
+**/ios/**/*.pbxuser
+**/ios/**/*.perspectivev3
+**/ios/**/*sync/
+**/ios/**/.sconsign.dblite
+**/ios/**/.tags*
+**/ios/**/.vscode/
+**/ios/.vagrant/
+**/ios/**/DerivedData/
+**/ios/**/Icon?
+**/ios/**/Icon??
+**/ios/**/Icon???
+**/ios/**/Icon????
+**/ios/**/Icon?????
+**/ios/**/Icon??
+**/ios/**/Icon???
+**/ios/**/Icon????
+**/ios/**/Icon?????
+**/ios/**/.DS_Store
+**/ios/**/.dart_tool/
+**/ios/**/.flutter-plugins
+**/ios/**/.flutter-plugins-dependencies
+**/ios/**/.packages
+**/ios/**/.pub-cache/
+**/ios/**/.pub/
+**/ios/**/pubspec.lock
+**/ios/**/GeneratedPluginRegistrant.*
+**/macos/**/*.mode1v3
+**/macos/**/*.mode2v3
+**/macos/**/*.moved-aside
+**/macos/**/*.pbxuser
+**/macos/**/*.perspectivev3
+**/macos/**/*sync/
+**/macos/**/.sconsign.dblite
+**/macos/**/.tags*
+**/macos/**/.vscode/
+**/macos/.vagrant/
+**/macos/**/DerivedData/
+**/macos/**/Icon?
+**/macos/**/Icon??
+**/macos/**/Icon???
+**/macos/**/Icon????
+**/macos/**/Icon?????
+**/macos/**/Icon??
+**/macos/**/Icon???
+**/macos/**/Icon????
+**/macos/**/Icon?????
+**/macos/**/.DS_Store
+**/macos/**/.dart_tool/
+**/macos/**/.flutter-plugins
+**/macos/**/.flutter-plugins-dependencies
+**/macos/**/.packages
+**/macos/**/.pub-cache/
+**/macos/**/.pub/
+**/macos/**/pubspec.lock
+**/macos/**/GeneratedPluginRegistrant.*
+Pods/
+Podfile.lock
+
+# Web
+web/.dart_tool/
+web/dart_service_worker.js
+
+# Temporary and auto-generated files
+**/.dart_tool/
+**/.pub-cache/
+**/.pub/
+**/pubspec.lock
+**/GeneratedPluginRegistrant.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+*.ipr
+*.iws
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Production
+release/
+dist/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+firebase_options.dart.backup
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local files
+local.properties
+key.properties
+
+# Generated files
+.g.dart
+.config.dart
+
+# Build outputs
+build/
+dist/
+out/
+
+# Coverage
+coverage/
+.coverage
+
+# Test
+test_driver/
+
+# Package manager
+node_modules/
+.npm
+.yarn
+package-lock.json
+yarn.lock
+
+# Backend/Server
+server/node_modules/
+server/.env
+server/dist/
+server/build/
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+temp/
+tmp/
+
+# VS Code specific
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+
+# JetBrains IDEs
+.idea/
+out/
+*.iml
+
+# Certificates and keys (NEVER COMMIT THESE)
+*.pem
+*.key
+*.cert
+*.crt
+*.p8
+*.p12
+*.pfx
+*.keystore
+*.jks
+google-services.json.backup
+*.json.backup
+serviceAccountKey.json
+
+# API keys and credentials
+.secrets/
+secrets/
+**/secrets/**
+.apikeys
+api_keys.json
+
+# Mac
+.DS_Store
+
+# OS X
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+.directory
+
+# Notes and documentation (optional - uncomment if desired)
+# *.md
+# TODO
+# NOTES
+
+# Miscellaneous
+*.class
+*.log
+*.pot
+*.mo
+
+# Generated
+.generated/
+generated/
+
+# Firebase
+.firebaserc
+firebase-debug.log
+
+# Misc
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
