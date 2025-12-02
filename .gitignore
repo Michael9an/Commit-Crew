@@ -1,0 +1,23 @@
+﻿# Build directories
+build/
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+.android/
+.ios/
+
+# Local files
+local.properties
+*.key
+*.jks
+*.keystore
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini

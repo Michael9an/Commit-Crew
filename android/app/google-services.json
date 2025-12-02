@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "488908762572",
+    "project_id": "eventmate-ecb46",
+    "storage_bucket": "eventmate-ecb46.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:488908762572:android:efefdc595c6049e09ec169",
+        "android_client_info": {
+          "package_name": "com.example.clubevents"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3OqXNWcOa2LAMv-jhAadAha8TOT3I3Bo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
