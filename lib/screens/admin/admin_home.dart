@@ -1,10 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import '../../widgets/role_based_bottom_nav.dart';
+import 'package:provider/provider.dart';
+import '../../providers/app_provider.dart';
 import 'user_management.dart';
 import 'system_analytics.dart';
 import 'content_moderation.dart';
-import 'admin_approval_screen.dart'; // Import the approval screen
+import 'admin_verification_screen.dart'; // Import the approval screen
 
 class AdminHomeScreen extends StatefulWidget {
   @override
@@ -18,7 +19,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     SystemAnalyticsScreen(),
     UserManagementScreen(),
     ContentModerationScreen(),
-    AdminApprovalScreen(), // Add approval screen as the 4th tab
+    AdminVerificationScreen(), // Add approval screen as the 4th tab
   ];
 
   // Admin-specific bottom navigation items
@@ -51,6 +52,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         actions: [
           // Add a quick access badge for pending approvals
           _buildPendingApprovalsBadge(),
+          // Logout button
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: () => _showLogoutDialog(context),
+          ),
         ],
       ),
       body: _screens[_currentIndex],
@@ -118,6 +125,31 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   ),
                 ),
               ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showLogoutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          title: const Text('Logout'),
+          content: const Text('Are you sure you want to logout?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                context.read<AppProvider>().logout();
+              },
+              child: const Text('Logout', style: TextStyle(color: Colors.red)),
+            ),
           ],
         );
       },

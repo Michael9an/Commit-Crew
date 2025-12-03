@@ -23,12 +23,21 @@ class FirestoreService {
     return _firestore
         .collection('events')
         .where('clubId', isEqualTo: clubId)
-        .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
-        return snapshot.docs.map((doc) {
-        return EventModel.fromFirestore(doc.data(), doc.id); // Pass doc.id as second parameter
+      // Sort locally instead of using orderBy on Firestore
+      final events = snapshot.docs.map((doc) {
+        return EventModel.fromFirestore(doc.data(), doc.id);
       }).toList();
+      
+      // Sort by createdAt descending locally
+      events.sort((a, b) {
+        final aTime = int.tryParse(a.date ?? '0') ?? 0;
+        final bTime = int.tryParse(b.date ?? '0') ?? 0;
+        return bTime.compareTo(aTime); // Descending order
+      });
+      
+      return events;
     });
   }
 
@@ -76,6 +85,7 @@ class FirestoreService {
   }
 
   // Club Members Management
+  // (These methods are kept for backward compatibility but may not be used in the single-admin model)
   Stream<List<UserModel>> getClubMembers(String clubId) {
     return _firestore
         .collection('users')
@@ -303,10 +313,34 @@ class FirestoreService {
     throw Exception('Club not found');
   }
 
+  // Added Method for Club Profile Update
+  Future<void> updateClub(String clubId, Map<String, dynamic> data) async {
+    try {
+      await _firestore.collection('clubs').doc(clubId).update(data);
+    } catch (e) {
+      print('Error updating club: $e');
+      throw e;
+    }
+  }
+
+  Future<void> submitClubVerification(String clubId, String documentUrl) async {
+    try {
+      await _firestore.collection('clubs').doc(clubId).update({
+        'approvalLetterUrl': documentUrl,
+        'verificationStatus': 'submitted', // New status flag for Admin notification
+        'status': 'pending_approval', // Update overall status
+        'submittedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error submitting verification: $e');
+      throw e;
+    }
+  }
+
   Future<void> joinClub(String clubId, String userId) async {
     final batch = _firestore.batch();
     
-    // Add user to club's pending requests or directly to members based on your logic
+    // Add user to club's pending requests
     batch.set(_firestore.collection('join_requests').doc('$clubId-$userId'), {
       'clubId': clubId,
       'userId': userId,
@@ -343,7 +377,7 @@ class FirestoreService {
   }
 }
 
-// Analytics Models - Add these at the bottom of the file
+// Analytics Models
 class ClubAnalytics {
   final int totalEvents;
   final int totalAttendance;

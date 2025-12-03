@@ -4,6 +4,7 @@ import 'dart:io';
 import '../../services/storage_service.dart';
 import '../../models/event.dart';
 import '../../services/firestore_service.dart';
+import 'event_detail_screen.dart';
 
 class EventDiscoveryScreen extends StatelessWidget {
   const EventDiscoveryScreen({super.key});
@@ -190,7 +191,12 @@ class EventDiscoveryScreen extends StatelessWidget {
       ),
       child: InkWell(
         onTap: () {
-          // TODO: Navigate to event details
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ParticipantEventDetailScreen(event: event),
+            ),
+          );
         },
         child: Padding(
           padding: EdgeInsets.all(16),

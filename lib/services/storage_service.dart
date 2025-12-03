@@ -4,6 +4,8 @@ import 'dart:async';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:path/path.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 class StorageService {
   final FirebaseStorage _storage = FirebaseStorage.instance;
@@ -336,8 +338,14 @@ Future<String?> uploadEventImage(
         return 'image/gif';
       case '.webp':
         return 'image/webp';
+      case 'pdf':
+        return 'application/pdf';
+      case 'doc': 
+        return 'application/msword';
+      case 'docx': 
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       default:
-        return 'image/jpeg'; // Default to JPEG
+        return 'application/pdf'; // Default to JPEG
     }
   }
 
@@ -366,4 +374,69 @@ Future<String?> uploadEventImage(
       print('StorageService: Error during cleanup: $e');
     }
   }
+final String _scriptUrl = "https://script.google.com/macros/s/AKfycbzS64lYI-JNg8qc_eLK-qJdvjXueeKd12gs2XoeDYgGwqTNIc9HIDsiZLt3aeQ9Zjeo/exec";
+
+  Future<String> uploadVerificationDocument(String clubId, File file, String extension) async {
+    try {
+      print("StorageService: Preparing to upload...");
+      
+      List<int> fileBytes = await file.readAsBytes();
+      String base64String = base64Encode(fileBytes);
+      String fileName = "verification_${clubId}.$extension";
+      String mimeType = _getMimeType(extension);
+
+      // 1. Create the JSON Payload
+      var payload = jsonEncode({
+        "filename": fileName,
+        "mimeType": mimeType,
+        "file": base64String,
+      });
+
+      print("StorageService: Sending Request to Google...");
+
+      // 2. Send Request (With Redirect Handling)
+      var response = await http.post(
+        Uri.parse(_scriptUrl),
+        headers: {"Content-Type": "application/json"}, // Required for Google
+        body: payload,
+      );
+
+      print("StorageService: Response Status: ${response.statusCode}");
+
+      // 3. Logic to Handle Google's Redirects (The Fix for <HTML> error)
+      String responseBody = response.body;
+      
+      // If we get a 302 Redirect, we MUST follow it manually
+      if (response.statusCode == 302 || response.headers.containsKey('location')) {
+        String? newUrl = response.headers['location'];
+        if (newUrl != null) {
+          print("StorageService: Following redirect to -> $newUrl");
+          var secondResponse = await http.get(Uri.parse(newUrl));
+          responseBody = secondResponse.body; // Use the *actual* data from the new URL
+        }
+      }
+
+      // 4. Validate Response is JSON (Not HTML)
+      if (responseBody.trim().startsWith("<")) {
+         // If we still get HTML here, it means the script crashed or permission denied
+         print("GOOGLE ERROR HTML: $responseBody");
+         throw FormatException("Upload failed. Google Script permissions might be wrong. Check 'Executions' tab in Script Editor.");
+      }
+
+      // 5. Parse JSON
+      var jsonResponse = jsonDecode(responseBody);
+      if (jsonResponse['status'] == 'success') {
+        print("StorageService: Success! Link: ${jsonResponse['url']}");
+        return jsonResponse['url'];
+      } else {
+        throw Exception('Script returned error: ${jsonResponse['message']}');
+      }
+
+    } catch (e) {
+      print('StorageService Critical Error: $e');
+      throw e;
+    }
+  }
+
+
 }

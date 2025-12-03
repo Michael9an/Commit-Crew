@@ -1,24 +1,28 @@
-import 'user.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class Club {
   final String id;
   final String name;
   final String description;
-  final String createdBy; // Store user ID instead of full UserModel
+  final String createdBy; // Store user ID
   final String imageUrl;
-  final List<String> memberIds; // Store member IDs instead of full UserModels
-  final List<String> adminIds; // Club admins who can manage the club
-  final List<String> eventIds; // Store event IDs created by this club
+  final List<String> memberIds; // Store member IDs
+  final List<String> adminIds; // Club admins
+  final List<String> eventIds; // Events created by this club
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final bool isActive;
-  final String status; // 'pending', 'approved', 'rejected'
+  final String status; // 'pending', 'pending_approval', 'approved', 'rejected'
   final String? contactEmail;
   final String? contactPhone;
   final String? website;
   final String? location;
   final List<String> categories; // Club categories/tags
   final String? approvalLetterUrl; // URL to uploaded approval letter
+
+  // NEW FIELDS for Verification Feature
+  final String? verificationStatus; // 'submitted', 'verified', 'rejected'
+  final DateTime? submittedAt; // When the verification doc was uploaded
 
   Club({
     required this.id,
@@ -32,14 +36,18 @@ class Club {
     this.createdAt,
     this.updatedAt,
     this.isActive = true,
-    this.status = 'pending', // Default to pending for new clubs
+    this.status = 'pending',
     this.contactEmail,
     this.contactPhone,
     this.website,
     this.location,
     this.categories = const [],
     this.approvalLetterUrl,
+    this.verificationStatus,
+    this.submittedAt,
   });
+
+  // ==================== FIRESTORE METHODS ====================
 
   factory Club.fromFirestore(Map<String, dynamic> json) {
     return Club(
@@ -51,8 +59,13 @@ class Club {
       memberIds: List<String>.from(json['memberIds'] ?? []),
       adminIds: List<String>.from(json['adminIds'] ?? []),
       eventIds: List<String>.from(json['eventIds'] ?? []),
-      createdAt: json['createdAt']?.toDate(),
-      updatedAt: json['updatedAt']?.toDate(),
+      // Handle both Timestamp (Firestore) and String (JSON) or null
+      createdAt: json['createdAt'] is Timestamp 
+          ? (json['createdAt'] as Timestamp).toDate() 
+          : (json['createdAt'] is String ? DateTime.tryParse(json['createdAt']) : null),
+      updatedAt: json['updatedAt'] is Timestamp 
+          ? (json['updatedAt'] as Timestamp).toDate() 
+          : (json['updatedAt'] is String ? DateTime.tryParse(json['updatedAt']) : null),
       isActive: json['isActive'] ?? true,
       status: json['status'] ?? 'pending',
       contactEmail: json['contactEmail'],
@@ -61,6 +74,10 @@ class Club {
       location: json['location'],
       categories: List<String>.from(json['categories'] ?? []),
       approvalLetterUrl: json['approvalLetterUrl'],
+      verificationStatus: json['verificationStatus'],
+      submittedAt: json['submittedAt'] is Timestamp 
+          ? (json['submittedAt'] as Timestamp).toDate() 
+          : (json['submittedAt'] is String ? DateTime.tryParse(json['submittedAt']) : null),
     );
   }
 
@@ -84,30 +101,15 @@ class Club {
       'location': location,
       'categories': categories,
       'approvalLetterUrl': approvalLetterUrl,
+      'verificationStatus': verificationStatus,
+      'submittedAt': submittedAt,
     };
   }
 
+  // ==================== JSON METHODS (Restored) ====================
+
   factory Club.fromJson(Map<String, dynamic> json) {
-    return Club(
-      id: json['id'],
-      name: json['name'],
-      description: json['description'],
-      createdBy: json['createdBy'],
-      imageUrl: json['imageUrl'] ?? '',
-      memberIds: List<String>.from(json['memberIds'] ?? []),
-      adminIds: List<String>.from(json['adminIds'] ?? []),
-      eventIds: List<String>.from(json['eventIds'] ?? []),
-      createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : null,
-      updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
-      isActive: json['isActive'] ?? true,
-      status: json['status'] ?? 'pending',
-      contactEmail: json['contactEmail'],
-      contactPhone: json['contactPhone'],
-      website: json['website'],
-      location: json['location'],
-      categories: List<String>.from(json['categories'] ?? []),
-      approvalLetterUrl: json['approvalLetterUrl'],
-    );
+    return Club.fromFirestore(json); // Reuse logic since we added string parsing support above
   }
 
   Map<String, dynamic> toJson() {
@@ -130,8 +132,12 @@ class Club {
       'location': location,
       'categories': categories,
       'approvalLetterUrl': approvalLetterUrl,
+      'verificationStatus': verificationStatus,
+      'submittedAt': submittedAt?.toIso8601String(),
     };
   }
+
+  // ==================== COPY WITH ====================
 
   Club copyWith({
     String? id,
@@ -152,6 +158,8 @@ class Club {
     String? location,
     List<String>? categories,
     String? approvalLetterUrl,
+    String? verificationStatus,
+    DateTime? submittedAt,
   }) {
     return Club(
       id: id ?? this.id,
@@ -172,11 +180,14 @@ class Club {
       location: location ?? this.location,
       categories: categories ?? this.categories,
       approvalLetterUrl: approvalLetterUrl ?? this.approvalLetterUrl,
+      verificationStatus: verificationStatus ?? this.verificationStatus,
+      submittedAt: submittedAt ?? this.submittedAt,
     );
   }
 
-  // Helper methods
-  bool get isPublic => true; // You can add visibility settings later
+  // ==================== HELPER GETTERS & METHODS (Restored) ====================
+  
+  bool get isPublic => true; 
   int get memberCount => memberIds.length;
   int get eventCount => eventIds.length;
   
@@ -185,6 +196,9 @@ class Club {
   bool get isApproved => status == 'approved';
   bool get isRejected => status == 'rejected';
   
+  // Updated to check new verification status
+  bool get isVerificationSubmitted => verificationStatus == 'submitted' || (approvalLetterUrl != null && approvalLetterUrl!.isNotEmpty);
+
   // Check if club can create events
   bool get canCreateEvents => isApproved && isActive;
   
@@ -215,14 +229,13 @@ class Club {
   Club removeMember(String userId) {
     return copyWith(
       memberIds: memberIds.where((id) => id != userId).toList(),
-      adminIds: adminIds.where((id) => id != userId).toList(), // Also remove from admins
+      adminIds: adminIds.where((id) => id != userId).toList(), 
       updatedAt: DateTime.now(),
     );
   }
 
   // Add admin to club
   Club addAdmin(String userId) {
-    // Ensure user is a member first
     final newMemberIds = memberIds.contains(userId) ? memberIds : [...memberIds, userId];
     final newAdminIds = [...adminIds, userId];
     
@@ -233,7 +246,7 @@ class Club {
     );
   }
 
-  // Remove admin from club (but keep as member)
+  // Remove admin from club
   Club removeAdmin(String userId) {
     return copyWith(
       adminIds: adminIds.where((id) => id != userId).toList(),
@@ -269,6 +282,8 @@ class Club {
   Club setApprovalLetter(String url) {
     return copyWith(
       approvalLetterUrl: url,
+      verificationStatus: 'submitted', // Auto-update status when letter is set
+      submittedAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
   }

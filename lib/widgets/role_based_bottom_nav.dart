@@ -31,7 +31,7 @@ class RoleBasedBottomNav extends StatelessWidget {
       onTap: onItemTapped,
       items: const [
         BottomNavigationBarItem(icon: Icon(Icons.explore), label: 'Discover'),
-        BottomNavigationBarItem(icon: Icon(Icons.bookmark), label: 'My Bookings'),
+        BottomNavigationBarItem(icon: Icon(Icons.bookmark), label: 'Registered Events'),
         BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
       ],
     );
@@ -44,7 +44,7 @@ class RoleBasedBottomNav extends StatelessWidget {
       items: const [
         BottomNavigationBarItem(icon: Icon(Icons.event), label: 'My Events'),
         BottomNavigationBarItem(icon: Icon(Icons.analytics), label: 'Analytics'),
-        BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Members'),
+        BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Profile'),
       ],
     );
   }
