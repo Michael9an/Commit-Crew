@@ -1,23 +1,25 @@
-﻿# Build directories
+﻿# Build outputs
 build/
-.dart_tool/
-.packages
-.pub-cache/
-.pub/
 .android/
 .ios/
 
-# Local files
+# Local configuration
 local.properties
 *.key
 *.jks
 *.keystore
 
-# Environment
+# Environment files
 .env
 .env.local
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Flutter/Dart - only exclude SOME files, not entire directories
+.dart_tool/package_config.json
+.packages
+.pub-cache/
+.pub/
