@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import '../../../models/event.dart';
+import '../../../services/storage_service.dart';
 
 class EventDetailsPage extends StatefulWidget {
   final EventModel eventData;
@@ -230,18 +231,57 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.grey[300]!),
                 ),
-                child: (_localEvent.bannerUrl == null || _localEvent.bannerUrl!.isEmpty)
-                    ? Column(
+                // USE THIS SAFE LOGIC
+                child: 
+                Builder(
+                  builder: (context) {
+                    final rawUrl = _localEvent.bannerUrl;
+
+                    // 1. Show Placeholder
+                    if (rawUrl == null || rawUrl.isEmpty || rawUrl == 'file:///') {
+                      return Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(Icons.add_photo_alternate, size: 50, color: Colors.grey),
                           SizedBox(height: 8),
                           Text('Tap to upload event banner'),
                         ],
-                      )
-                    : (_localEvent.bannerUrl!.startsWith('http')
-                        ? Image.network(_localEvent.bannerUrl!, fit: BoxFit.cover)
-                        : Image.file(File(_localEvent.bannerUrl!), fit: BoxFit.cover)),
+                      );
+                    }
+
+                    // 2. Network Image (With FutureBuilder)
+                    if (rawUrl.startsWith('http')) {
+                      return FutureBuilder<String?>(
+                        future: StorageService().resolveImageUrl(rawUrl),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return Center(child: CircularProgressIndicator());
+                          }
+                          return Image.network(
+                            snapshot.data ?? rawUrl, 
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            errorBuilder: (_,__,___) => Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                          );
+                        }
+                      );
+                    }
+
+                    // 3. Local File
+                    return Image.file(
+                      File(rawUrl), 
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      errorBuilder: (_,__,___) => Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.error_outline, size: 50, color: Colors.red),
+                          Text('Image file missing'),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
             SizedBox(height: 20),

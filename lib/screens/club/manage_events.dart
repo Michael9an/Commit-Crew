@@ -1,26 +1,33 @@
 import 'package:flutter/material.dart';
-import 'club_events_screen.dart'; // Add this import
-import '../../../models/club.dart'; // Add this import
+import 'package:provider/provider.dart'; // Import Provider
+import 'club_events_screen.dart'; 
+import '../../../models/club.dart';
+import '../../../providers/app_provider.dart'; // Import AppProvider
 
 class ManageEventsScreen extends StatelessWidget {
-  final Club? club; // Add club parameter
+  final Club? club;
 
   const ManageEventsScreen({super.key, this.club});
 
   @override
   Widget build(BuildContext context) {
-    // If club is provided, use ClubEventsScreen, otherwise show placeholder
+    // 1. If we have club data, show the normal screen
     if (club != null) {
       return ClubEventsScreen(club: club!);
     }
 
-    // Fallback UI if no club is provided
+    // 2. Fallback UI (Now with AppBar!)
     return Scaffold(
+      appBar: AppBar(
+        title: Text('Manage Events'),
+        // You can choose to hide the "Add" button here if no club exists
+        // or show it but make it show a snackbar saying "Wait for loading"
+      ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.event, size: 64, color: Colors.grey),
+            Icon(Icons.event_busy, size: 64, color: Colors.grey),
             SizedBox(height: 16),
             Text(
               'No club data available',
@@ -28,8 +35,19 @@ class ManageEventsScreen extends StatelessWidget {
             ),
             SizedBox(height: 8),
             Text(
-              'Please try refreshing the app',
+              'Please check your internet or verification status.',
+              textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey),
+            ),
+            SizedBox(height: 24),
+            // Retry Button
+            ElevatedButton.icon(
+              icon: Icon(Icons.refresh),
+              label: Text('Retry Loading'),
+              onPressed: () {
+                // Trigger a reload via Provider
+                context.read<AppProvider>().refreshUser();
+              },
             ),
           ],
         ),

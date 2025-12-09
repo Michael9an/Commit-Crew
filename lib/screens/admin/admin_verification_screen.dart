@@ -19,23 +19,24 @@ class AdminVerificationScreen extends StatelessWidget {
 
     final Uri uri = Uri.parse(url);
     try {
-      // CHANGE 1: Try to launch in an internal WebView first (bypasses Drive App)
+      // FORCE OPEN IN BROWSER (Fixes the "No Google Account" crash)
       if (await canLaunchUrl(uri)) {
         await launchUrl(
           uri, 
-          // 'inAppWebView' forces it to open inside your app's browser
-          // 'externalApplication' is what opens the Drive App (which is crashing)
-          mode: LaunchMode.inAppWebView, 
+          mode: LaunchMode.externalApplication, // Tries browser/PDF viewer
         );
       } else {
         throw 'Could not launch $url';
       }
     } catch (e) {
-      // Fallback: If inAppWebView fails, try external but warn user
-      print("Launch Error: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open document. Please check your internet.')),
-      );
+      // Fallback: Try In-App WebView if external fails
+      try {
+        await launchUrl(uri, mode: LaunchMode.inAppWebView);
+      } catch (e2) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open document: $e')),
+        );
+      }
     }
   }
 

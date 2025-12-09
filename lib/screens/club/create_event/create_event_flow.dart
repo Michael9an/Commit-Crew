@@ -15,8 +15,15 @@ import '../../../services/firebase_init.dart';
 
 class CreateEventFlow extends StatefulWidget {
   final Club club;
+  final EventModel? eventToEdit; // NEW: Optional event to edit
+  final bool isDuplicate; // NEW: Flag to indicate duplication
   
-  const CreateEventFlow({super.key, required this.club});
+  const CreateEventFlow({
+    super.key, 
+    required this.club, 
+    this.eventToEdit,
+    this.isDuplicate = false,
+  });
 
   @override
   _CreateEventFlowState createState() => _CreateEventFlowState();
@@ -36,38 +43,47 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
     _initializeEventData();
   }
 
-  void _initializeEventData() {
-  _eventData = EventModel(
-      id: '',
-      name: '',
-      description: '',
-      date: DateTime.now().millisecondsSinceEpoch.toString(),
-      startTime: '19:00', // Default start time
-      endTime: '21:00',   // Default end time
-      bannerUrl: null,
-      location: '',
-      clubId: widget.club.id,
-      clubName: widget.club.name,
-      clubImageUrl: widget.club.imageUrl,
-      maxAttendees: 50, // Default capacity
-      price: 0.0,
-      isFree: true,
-      refundPolicy: 'No refunds available for this event.',
-      publishTime: DateTime.now().millisecondsSinceEpoch.toString(),
-      createdAt: DateTime.now(),
-      status: 'draft',
-      attendees: [],
-      waitlist: [],
-      views: 0,
-      shares: 0,
-      isCancelled: false,
-      updatedAt: DateTime.now(),
-      category: 'General',
-      tags: [],
-      contactEmail: widget.club.contactEmail ?? '',
-      contactPhone: widget.club.contactPhone ?? '',
-    );
+void _initializeEventData() {
+    // FIX: Properly load the passed data (Edit or Duplicate)
+    if (widget.eventToEdit != null) {
+      _eventData = widget.eventToEdit!;
+      // Note: We already cleaned the ID in the previous screen, 
+      // so this object is ready to be treated as "New".
+    } else {
+      // Default blank initialization
+      _eventData = EventModel(
+        id: '',
+        name: '',
+        description: '',
+        date: DateTime.now().millisecondsSinceEpoch.toString(),
+        startTime: '19:00',
+        endTime: '21:00',
+        bannerUrl: null,
+        location: '',
+        clubId: widget.club.id,
+        clubName: widget.club.name,
+        clubImageUrl: widget.club.imageUrl,
+        maxAttendees: 50,
+        price: 0.0,
+        isFree: true,
+        refundPolicy: 'No refunds available.',
+        publishTime: DateTime.now().millisecondsSinceEpoch.toString(),
+        createdAt: DateTime.now(),
+        status: 'draft',
+        attendees: [],
+        waitlist: [],
+        views: 0,
+        shares: 0,
+        isCancelled: false,
+        updatedAt: DateTime.now(),
+        category: 'General',
+        tags: [],
+        contactEmail: widget.club.contactEmail ?? '',
+        contactPhone: widget.club.contactPhone ?? '',
+      );
+    }
   }
+  
   void _goToPage(int page) {
     if (_isSubmitting) return;
     setState(() {
@@ -272,45 +288,40 @@ TimeOfDay? _parseTime(String timeString) {
     }
 
     // Check if it's a local file that needs uploading
-    if (eventToSave.bannerUrl!.startsWith('/') || 
-        eventToSave.bannerUrl!.startsWith('file://') ||
-        !eventToSave.bannerUrl!.startsWith('http')) {
+    if (!eventToSave.bannerUrl!.startsWith('http')) {
       
       progressNotifier.value = 'Uploading event image...';
-      final imageFile = File(eventToSave.bannerUrl!.replaceFirst('file://', ''));
+      final imagePath = eventToSave.bannerUrl!.replaceFirst('file://', '');
+      final imageFile = File(imagePath);
       
       if (await imageFile.exists()) {
         try {
+          // Use the new StorageService uploadEventImage
           final downloadUrl = await _storageService.uploadEventImage(
             imageFile,
             eventToSave.id,
             onProgress: (progress) {
+              // Note: Google Script upload doesn't support fine-grained progress
+              // We simulate "Uploading..." state in the UI
               if (mounted) {
-                progressNotifier.value = 
-                  'Uploading image: ${(progress * 100).toStringAsFixed(1)}%';
+                progressNotifier.value = 'Uploading image to Cloud...';
               }
             },
-          ).timeout(
-            Duration(seconds: 45),
-            onTimeout: () {
-              throw TimeoutException('Image upload took too long. Please try again.');
-            },
           );
-
+          
           return downloadUrl;
         } catch (uploadError) {
           print('Image upload failed: $uploadError');
-          progressNotifier.value = 'Image upload failed, continuing without image...';
-          await Future.delayed(Duration(seconds: 1));
-          return null;
+          // Optional: Ask user if they want to retry or continue without image
+          return null; 
         }
       } else {
-        progressNotifier.value = 'Image file not found, continuing without image...';
+        print("Image file not found at path: $imagePath");
         return null;
       }
     }
     
-    // If it's already an HTTP URL, return it as is
+    // If it's already an HTTP URL (e.g. from editing an existing event), return it as is
     return eventToSave.bannerUrl;
   }
 
