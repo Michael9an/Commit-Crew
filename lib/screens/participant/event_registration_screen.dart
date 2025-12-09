@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../models/event.dart';
+import '../../models/user.dart';
+import '../../services/registration_service.dart';
+import '../../services/auth_service.dart';
 import 'payment_gateway_screen.dart';
 
 class EventRegistrationScreen extends StatefulWidget {
@@ -18,6 +21,8 @@ class EventRegistrationScreen extends StatefulWidget {
 
 class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
+  final RegistrationService _registrationService = RegistrationService();
+  final AuthService _authService = AuthService();
   
   // Form controllers
   TextEditingController _fullNameController = TextEditingController();
@@ -26,11 +31,26 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
   
   bool _acceptTerms = false;
   bool _isSubmitting = false;
+  bool _isUserLoggedIn = false;
+  UserModel? _currentUser;
 
-  // Validation
-  final Color primaryColor = Colors.red;
-  final Color errorColor = Colors.redAccent;
-  final Color successColor = Color(0xFF4CAF50);
+  @override
+  void initState() {
+    super.initState();
+    _checkUserStatus();
+  }
+
+  Future<void> _checkUserStatus() async {
+    final user = await _authService.getCurrentUser();
+    if (user != null) {
+      setState(() {
+        _isUserLoggedIn = true;
+        _currentUser = user;
+        _fullNameController.text = user.name;
+        _emailController.text = user.email;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -40,7 +60,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
     super.dispose();
   }
 
-  void _showSuccessDialog(BuildContext context, bool isPaidEvent) {
+  void _showSuccessDialog(BuildContext context, bool isPaidEvent, String registerId) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -73,12 +93,12 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                   width: 60,
                   height: 60,
                   decoration: BoxDecoration(
-                    color: successColor.withOpacity(0.15),
+                    color: Color(0xFF4CAF50).withOpacity(0.15),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     Icons.check_circle,
-                    color: successColor,
+                    color: Color(0xFF4CAF50),
                     size: 36,
                   ),
                 ),
@@ -111,8 +131,104 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                   textAlign: TextAlign.center,
                 ),
               ),
+              SizedBox(height: 16),
+              
+              // Registration ID
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.confirmation_number, size: 20, color: Colors.blue),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Registration ID',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            registerId,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue[700],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               SizedBox(height: 24),
               
+               // Action Buttons
+              Row(
+                children: [
+                  // View Ticket Button
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        // TODO: Navigate to ticket screen
+                        Navigator.of(context).pop();
+                        Navigator.of(context).pop(true);
+                      },
+                      style: OutlinedButton.styleFrom(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        side: BorderSide(color: Colors.grey[300]!),
+                      ),
+                      child: Text(
+                        'View Ticket',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 12),
+
+              // Continue Button
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        Navigator.of(context).pop(true); // Return success
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 2,
+                      ),
+                      child: Text(
+                        'Continue',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
               // Booking/Registration Details Card
               Container(
                 padding: EdgeInsets.all(16),
@@ -140,7 +256,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                         Icon(
                           Icons.event,
                           size: 16,
-                          color: primaryColor,
+                          color: Colors.red,
                         ),
                         SizedBox(width: 8),
                         Expanded(
@@ -165,7 +281,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                         Icon(
                           Icons.person,
                           size: 16,
-                          color: primaryColor,
+                          color: Colors.red,
                         ),
                         SizedBox(width: 8),
                         Expanded(
@@ -185,7 +301,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                         Icon(
                           Icons.email,
                           size: 16,
-                          color: primaryColor,
+                          color: Colors.red,
                         ),
                         SizedBox(width: 8),
                         Expanded(
@@ -208,7 +324,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                           Icon(
                             Icons.confirmation_number,
                             size: 16,
-                            color: primaryColor,
+                            color: Colors.red,
                           ),
                           SizedBox(width: 8),
                           Text(
@@ -238,7 +354,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                           Icon(
                             Icons.attach_money,
                             size: 16,
-                            color: primaryColor,
+                            color: Colors.red,
                           ),
                           SizedBox(width: 8),
                           Text(
@@ -254,7 +370,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
-                              color: primaryColor,
+                              color: Colors.red,
                             ),
                           ),
                         ],
@@ -351,7 +467,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('Event saved to calendar'),
-                            backgroundColor: successColor,
+                            backgroundColor: Color(0xFF4CAF50),
                           ),
                         );
                         Navigator.of(context).pop();
@@ -382,7 +498,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                         Navigator.of(context).pop(true); // Return success
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryColor,
+                        backgroundColor: Colors.red,
                         padding: EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -408,13 +524,13 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
     );
   }
 
-  void _submitRegistration() async {
+  Future<void> _submitRegistration() async {
     if (!_formKey.currentState!.validate()) return;
     if (!_acceptTerms) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Please accept the terms and conditions'),
-          backgroundColor: errorColor,
+          backgroundColor: Colors.redAccent,
         ),
       );
       return;
@@ -425,8 +541,20 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
     });
 
     try {
-      // Simulate API call
-      await Future.delayed(Duration(seconds: 1));
+      // Register for the event
+      final result = await _registrationService.registerToEvent(
+        eventId: widget.event.id,
+        fullName: _fullNameController.text.trim(),
+        email: _emailController.text.trim(),
+        phoneNumber: _phoneController.text.trim(),
+        ticketQuantity: widget.ticketQuantity,
+        userId: _currentUser?.id,
+        isFree: widget.event.isFree,
+        amountPaid: widget.event.isFree ? 0.0 : widget.event.price * widget.ticketQuantity,
+      );
+
+      if (result['success'] == true) {
+        final registerId = result['registerId'];
       
       // Navigate to payment screen for paid events
       if (!widget.event.isFree) {
@@ -442,24 +570,40 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                 'fullName': _fullNameController.text,
                 'email': _emailController.text,
                 'phone': _phoneController.text,
+                'registerId': registerId,
               },
             ),
           ),
-        ).then((success) {
+        ).then((success) async {
           if (success == true) {
-            // Payment was successful - show success dialog
-            _showSuccessDialog(context, true); // true = paid event
+            // Payment was successful - update registration
+            await _registrationService.completePayment(
+              registerId: registerId,
+              amount: widget.event.price * widget.ticketQuantity,
+              paymentId: 'payment_${DateTime.now().millisecondsSinceEpoch}',
+            );
+
+            //show success dialog
+            _showSuccessDialog(context, true, registerId); // true = paid event
           }
         });
       } else {
         // For free events, show success directly
-        _showSuccessDialog(context, false); // false = free event
+        _showSuccessDialog(context, false, registerId); // false = free event
       }
-    } catch (error) {
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Registration failed: ${result['error']}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } catch (error) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Registration failed: $error'),
-          backgroundColor: errorColor,
+          backgroundColor: Colors.redAccent,
         ),
       );
     } finally {
@@ -475,7 +619,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
       appBar: AppBar(
         title: Text('Event Registration'),
         centerTitle: true,
-        backgroundColor: primaryColor,
+        backgroundColor: Colors.red,
         foregroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
@@ -600,7 +744,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                           style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
-                            color: widget.event.isFree ? Colors.green : primaryColor,
+                            color: widget.event.isFree ? Colors.green : Colors.red,
                           ),
                         ),
                       ],
@@ -639,7 +783,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                       controller: _fullNameController,
                       decoration: InputDecoration(
                         labelText: 'Full Name *',
-                        prefixIcon: Icon(Icons.person, color: primaryColor),
+                        prefixIcon: Icon(Icons.person, color: Colors.red),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -663,7 +807,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                       controller: _emailController,
                       decoration: InputDecoration(
                         labelText: 'Email Address *',
-                        prefixIcon: Icon(Icons.email, color: primaryColor),
+                        prefixIcon: Icon(Icons.email, color: Colors.red),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -688,7 +832,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                       controller: _phoneController,
                       decoration: InputDecoration(
                         labelText: 'Phone Number *',
-                        prefixIcon: Icon(Icons.phone, color: primaryColor),
+                        prefixIcon: Icon(Icons.phone, color: Colors.red),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -722,7 +866,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                                   _acceptTerms = value ?? false;
                                 });
                               },
-                              activeColor: primaryColor,
+                              activeColor: Colors.red,
                             ),
                             Expanded(
                               child: Column(
@@ -762,7 +906,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                                     child: Text(
                                       'View Terms and Conditions',
                                       style: TextStyle(
-                                        color: primaryColor,
+                                        color: Colors.red,
                                         decoration: TextDecoration.underline,
                                       ),
                                     ),
@@ -776,6 +920,10 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                     ),
                     SizedBox(height: 32),
 
+                  //CONTINUE HERE DEEPSEEK FROM NEW CHAT
+                  //FOCUS ON CREDIT/DEBIT CARD PAYMENT BC THEY CAN USE SANDBOX TO SIMULATE A REAL TRANSACTION
+                  //MAKE TWO SEPARATE REGISTRATION (AUTO FILL DETAILS IF REGISTERING FOR YOURSELF OR GIVE OPTION (BUTTON OR SOMETHING) IF YOU WANT TO REGISTER OTHERS)
+
                     // Submit Button
                     SizedBox(
                       width: double.infinity,
@@ -783,7 +931,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                       child: ElevatedButton(
                         onPressed: _isSubmitting ? null : _submitRegistration,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: primaryColor,
+                          backgroundColor: Colors.red,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),

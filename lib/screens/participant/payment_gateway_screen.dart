@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/event.dart';
+import '../../services/registration_service.dart';
 
 class PaymentGatewayScreen extends StatefulWidget {
   final EventModel event;
@@ -21,6 +22,7 @@ class PaymentGatewayScreen extends StatefulWidget {
 
 class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
   final _formKey = GlobalKey<FormState>();
+  final RegistrationService _registrationService = RegistrationService();
   String _selectedPaymentMethod = 'credit_card';
   TextEditingController _cardNumberController = TextEditingController();
   TextEditingController _expiryController = TextEditingController();
@@ -400,6 +402,8 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
     );
   }
 
+  //ONLY USE CARD PAYMENT (EXPLORE SANDBOX)
+
   Future<void> _processPayment() async {
     if (_selectedPaymentMethod == 'credit_card') {
       if (!_formKey.currentState!.validate()) return;
@@ -410,16 +414,29 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
     });
 
     try {
-      // Simulate payment processing
-      await Future.delayed(Duration(seconds: 2));
+      // Process payment with registration service
+      final result = await _registrationService.completePayment(
+        registerId: widget.registrationData['registerId'], 
+        amount: widget.totalAmount, 
+        paymentId: 'payment_&{DateTime.now().millisecondsSinceEpoch}',
+      );
 
-      // Show payment success dialog
+      if(result['success'] == true) {
+        // Show payment success dialog
       _showPaymentSuccessDialog(context);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Payment failed: ${result['error']}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } catch (error) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Payment failed: $error'),
-          backgroundColor: errorColor,
+            content: Text('Payment failed: $error'),
+            backgroundColor: Colors.red,
         ),
       );
     } finally {

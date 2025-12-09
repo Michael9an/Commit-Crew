@@ -19,93 +19,120 @@ class RegistrationService {
     bool isFree = false,
   }) async {
     try {
+      // Generate unique registration ID
       final registerId = '${eventId}_${DateTime.now().millisecondsSinceEpoch}';
 
-      return await _firestore.runTransaction<Map<String, dynamic>>(
-        (transaction) async {
-          // 1. Get event document
-          final eventRef = _firestore.collection('events').doc(eventId);
-          final eventDoc = await transaction.get(eventRef);
+      // Get event reference
+      final eventRef = _firestore.collection('events').doc(eventId);
+      final eventDoc = await eventRef.get();
 
-          if (!eventDoc.exists) {
-            throw Exception('Event not found');
-          }
+      if (!eventDoc.exists) {
+        return {
+          'succcess': false,
+          'error': 'Event no found',
+        };
+      }
 
-          final eventData = eventDoc.data()!;
-          final event = EventModel.fromFirestore(eventData);
+      final eventData = eventDoc.data()!;
+      final event = EventModel.fromFirestore(eventData);
 
-          // 2. Check if event is published and not cancelled
-          if (event.status != 'published' || event.isCancelled) {
-            throw Exception('Event is not available for registration');
-          }
+      // Check if event is available
+      if (event.status != 'published') {
+        return{
+          'success': false,
+          'error': 'Event is not available for registration',
+        };
+      }
 
-          // 3. Check if event date is in the future
-          final eventDate = event.dateTime;
-          if (eventDate.isBefore(DateTime.now())) {
-            throw Exception('Event has already passed');
-          }
+      // Check if event is no cancelled
+      if(event.isCancelled) {
+        return {
+          'success': false,
+          'error': 'Event has been cancelled',
+        };
+      }
 
-          // 4. Check available spots
-          final maxAttendees = event.maxAttendees;
-          final currentAttendees = event.attendees.length;
-          if (maxAttendees > 0 && (currentAttendees + ticketQuantity) > maxAttendees) {
-            throw Exception('Not enough spots available. Only ${maxAttendees - currentAttendees} spots left');
-          }
+      // Check if event date is in the future
+      final eventDate = event.dateTime;
+      if (eventDate.isBefore(DateTime.now())) {
+        return {
+          'success': false,
+          'error': 'Event has already passed'
+        };
+      }
 
-          // 5. Check for duplicate registration by email
-          final duplicateCheck = await _firestore
-              .collection('registers')
-              .where('eventId', isEqualTo: eventId)
-              .where('email', isEqualTo: email)
-              .where('status', whereIn: ['registered', 'pending'])
-              .limit(1)
-              .get();
+      // Check capacity
+      final maxAttendees = event.maxAttendees;
+      final currentAttendees = event.attendees.length;
+      if (maxAttendees > 0 && (currentAttendees + ticketQuantity) > maxAttendees) {
+        return {
+          'success': false,
+          'error': 'Not enough spots available',
+        };
+      }
 
-          if (duplicateCheck.docs.isNotEmpty) {
-            throw Exception('You are already registered for this event');
-          }
+      // Check for duplicate registration by email
+      final duplicateCheck = await _firestore
+          .collection('registers')
+          .where('eventId', isEqualTo: eventId)
+          .where('email', isEqualTo: email.trim().toLowerCase())
+          .where('status', whereIn: ['registered', 'pending'])
+          .limit(1)
+          .get();
 
-          // 6. Create registration object
-          final register = Register(
-            id: registerId,
-            eventId: eventId,
-            clubId: event.clubId,
-            fullName: fullName.trim(),
-            email: email.trim(),
-            phoneNumber: phoneNumber.trim(),
-            registrationDate: DateTime.now(),
-            userId: userId,
-            status: 'registered',
-            paymentStatus: isFree ? null : 'pending',
-            ticketQuantity: ticketQuantity,
-            amountPaid: amountPaid,
-          );
+      if (duplicateCheck.docs.isNotEmpty) {
+        return {
+          'success': false,
+          'error': 'You are already registered for this event', 
+        };
+      }
 
-          // 7. Update event attendees (add user ID if available)
-          final updates = <String, dynamic>{
-            'updatedAt': FieldValue.serverTimestamp(),
-          };
-
-          if (userId != null && userId.isNotEmpty) {
-            updates['attendees'] = FieldValue.arrayUnion([userId]);
-          }
-
-          // 8. Execute transaction
-          transaction.set(
-            _firestore.collection('registers').doc(registerId),
-            register.toFirestore(),
-          );
-
-          transaction.update(eventRef, updates);
-
-          return {
-            'success': true,
-            'registerId': registerId,
-            'message': 'Registration successful',
-            'register': register.toFirestore(),
-          };
-        },
+      // Create registration object
+      final register = Register(
+        id: registerId,
+        eventId: eventId,
+        clubId: event.clubId,
+        fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        phoneNumber: phoneNumber.trim(),
+        registrationDate: DateTime.now(),
+        userId: userId,
+        status: 'registered',
+        paymentStatus: isFree ? null : 'pending',
+        ticketQuantity: ticketQuantity,
+        amountPaid: amountPaid,
       );
+
+      final batch = _firestore.batch();
+
+      // Save registration docs
+      final registerRef = _firestore.collection('registers').doc(registerId);
+      batch.set(registerRef, register.toFirestore());
+
+      // Update event attendees
+      if (userId != null && userId.isNotEmpty) {
+        batch.update(eventRef, {
+          'attendees': FieldValue.arrayUnion([userId]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        // For guest registration, track by email
+        batch.update(eventRef, {
+          'attendeesEmails': FieldValue.arrayUnion([email.trim().toLowerCase()]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      // Execute batch
+      await batch.commit();
+
+      return {
+        'success': true,
+        'registerId': registerId,
+        'message': 'Registration successful',
+        'register': register.toFirestore(),
+      };
+      
     } catch (e) {
       return {
         'success': false,
@@ -400,5 +427,31 @@ class RegistrationService {
               final data = doc.data() as Map<String, dynamic>;
               return Register.fromFirestore(data);
             }).toList());
+  }
+
+  // Add this to registration_service.dart for testing
+  Future<void> testRegistrationConnection() async {
+    try {
+      print('Testing Firestore connection...');
+      
+      // Test write
+      await _firestore.collection('test_registration').doc('test').set({
+        'test': true,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+      print('✓ Write test passed');
+      
+      // Test read
+      final doc = await _firestore.collection('test_registration').doc('test').get();
+      print('✓ Read test passed: ${doc.exists}');
+      
+      // Test registration collection
+      final registers = await _firestore.collection('registers').limit(1).get();
+      print('✓ Registers collection accessible: ${registers.docs.length}');
+      
+    } catch (e) {
+      print('✗ Firestore connection error: $e');
+      rethrow;
+    }
   }
 }
