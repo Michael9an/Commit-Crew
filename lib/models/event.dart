@@ -20,6 +20,7 @@ class EventModel {
   final DateTime? createdAt;
   final String status;
   final List<String> attendees;
+  final List<String> attendeesEmail;
   final List<String> waitlist;
   final int views;
   final int shares;
@@ -50,6 +51,7 @@ class EventModel {
     this.createdAt,
     this.status = 'upcoming',
     this.attendees = const [],
+    this.attendeesEmail = const [],
     this.waitlist = const [],
     this.views = 0,
     this.shares = 0,
@@ -74,6 +76,7 @@ class EventModel {
     }
     return null;
   }
+  
 
   return EventModel(
     id: documentId, // Use the document ID instead of data['id']
@@ -95,6 +98,7 @@ class EventModel {
     createdAt: _convertToDateTime(data['createdAt']),
     status: data['status'] ?? 'upcoming',
     attendees: List<String>.from(data['attendees'] ?? []),
+    attendeesEmail: List<String>.from(data['attendeesEmail'] ?? []),
     waitlist: List<String>.from(data['waitlist'] ?? []),
     views: data['views'] ?? 0,
     shares: data['shares'] ?? 0,
@@ -133,6 +137,7 @@ class EventModel {
       'createdAt': _convertToTimestamp(createdAt),
       'status': status,
       'attendees': attendees,
+      'attendeesEmail': attendeesEmail,
       'waitlist': waitlist,
       'views': views,
       'shares': shares,
@@ -286,8 +291,8 @@ class EventModel {
   }
 
   String get priceDisplay {
-    if (isFree) return 'Free';
-    return '\$${price.toStringAsFixed(2)}';
+    if (isFree) return 'FREE';
+    return 'RM${price.toStringAsFixed(2)}';
   }
 
   String get capacityDisplay {
