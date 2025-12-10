@@ -1,4 +1,3 @@
-// create_event_flow.dart - Enhanced and fixed version
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'dart:async';
@@ -15,8 +14,8 @@ import '../../../services/firebase_init.dart';
 
 class CreateEventFlow extends StatefulWidget {
   final Club club;
-  final EventModel? eventToEdit; // NEW: Optional event to edit
-  final bool isDuplicate; // NEW: Flag to indicate duplication
+  final EventModel? eventToEdit; 
+  final bool isDuplicate; 
   
   const CreateEventFlow({
     super.key, 
@@ -43,14 +42,14 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
     _initializeEventData();
   }
 
-void _initializeEventData() {
-    // FIX: Properly load the passed data (Edit or Duplicate)
+  void _initializeEventData() {
     if (widget.eventToEdit != null) {
       _eventData = widget.eventToEdit!;
-      // Note: We already cleaned the ID in the previous screen, 
-      // so this object is ready to be treated as "New".
+      // If it is a duplicate, the previous screen (ClubEventDetails) likely cleared the ID,
+      // but just to be safe, if we are duplicating, we can treat it as a new draft visually,
+      // though the ID generation happens strictly in _submitEvent.
     } else {
-      // Default blank initialization
+      // Default blank initialization for new event
       _eventData = EventModel(
         id: '',
         name: '',
@@ -104,7 +103,6 @@ void _initializeEventData() {
         ),
       );
       
-      // Navigate to the appropriate step based on the error
       if (validationError.contains('name') || 
           validationError.contains('description') || 
           validationError.contains('location') ||
@@ -121,7 +119,7 @@ void _initializeEventData() {
       _isSubmitting = true;
     });
 
-    final progressNotifier = ValueNotifier<String>('Creating event...');
+    final progressNotifier = ValueNotifier<String>('Processing...');
     
     showDialog(
       context: context,
@@ -133,7 +131,7 @@ void _initializeEventData() {
             valueListenable: progressNotifier,
             builder: (context, statusMessage, _) {
               return AlertDialog(
-                title: Text('Creating Event'),
+                title: Text(widget.eventToEdit != null && !widget.isDuplicate ? 'Updating Event' : 'Creating Event'),
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -152,7 +150,6 @@ void _initializeEventData() {
     try {
       progressNotifier.value = 'Checking connection...';
       
-      // Initialize Firebase if needed
       final firebaseReady = await isFirebaseInitialized();
       if (!firebaseReady) {
         progressNotifier.value = 'Initializing Firebase...';
@@ -162,13 +159,36 @@ void _initializeEventData() {
         }
       }
 
-      // Generate a unique ID for the event
-      final generatedId = '${widget.club.id}_${DateTime.now().millisecondsSinceEpoch}';
+      // --- FIX STARTS HERE ---
+      
+      // Determine if we are editing an existing event
+      final bool isEditing = widget.eventToEdit != null && !widget.isDuplicate;
+
+      // 1. Determine ID
+      String finalId;
+      if (isEditing && _eventData.id.isNotEmpty) {
+        finalId = _eventData.id; // Use existing ID for updates
+      } else {
+        finalId = '${widget.club.id}_${DateTime.now().millisecondsSinceEpoch}'; // Generate new ID
+      }
+
+      // 2. Determine Created At
+      DateTime finalCreatedAt;
+      if (isEditing) {
+        // FIX: Handle potential null value from model
+        finalCreatedAt = _eventData.createdAt ?? DateTime.now(); 
+      } else {
+        finalCreatedAt = DateTime.now(); 
+      }
+
+      // 3. Prepare Object
       EventModel eventToSave = _eventData.copyWith(
-        id: generatedId,
-        status: 'published', // Set to published immediately
-        createdAt: DateTime.now(),
+        id: finalId,
+        status: isEditing ? _eventData.status : 'published', 
+        createdAt: finalCreatedAt,
+        updatedAt: DateTime.now(), 
       );
+      // --- FIX ENDS HERE ---
 
       // Handle image upload if there's a banner
       String? bannerDownloadUrl = await _handleImageUpload(eventToSave, progressNotifier);
@@ -178,7 +198,7 @@ void _initializeEventData() {
 
       progressNotifier.value = 'Saving event details...';
       
-      // Save event to Firestore
+      // Save event to Firestore (addEvent typically uses .set() which overwrites/updates if ID exists)
       await _firestoreService.addEvent(eventToSave).timeout(
         Duration(seconds: 15),
         onTimeout: () {
@@ -186,17 +206,19 @@ void _initializeEventData() {
         },
       );
       
-      // Update club's events list
-      progressNotifier.value = 'Updating club information...';
-      await _updateClubEvents(eventToSave.id);
+      // Only update club's event list if it's a NEW event (or duplicate)
+      // If editing, the ID is likely already in the club's list.
+      if (!isEditing) {
+        progressNotifier.value = 'Updating club information...';
+        await _updateClubEvents(eventToSave.id);
+      }
       
       if (!mounted) return;
       
-      // Close progress dialog
-      Navigator.pop(context);
+      Navigator.pop(context); // Close progress dialog
       
       // Show success message
-      _showSuccessDialog(eventToSave.name);
+      _showSuccessDialog(eventToSave.name, isEditing);
       
     } catch (e) {
       print('Event creation error: $e');
@@ -210,137 +232,97 @@ void _initializeEventData() {
     }
   }
 
-  // Validate event data before submission
   String? _validateEventData() {
-  if (_eventData.name.isEmpty) {
-    return 'Please enter event name';
-  }
-  if (_eventData.name.length < 3) {
-    return 'Event name should be at least 3 characters long';
-  }
-  if (_eventData.description.isEmpty) {
-    return 'Please enter event description';
-  }
-  if (_eventData.description.length < 10) {
-    return 'Event description should be at least 10 characters long';
-  }
-  if (_eventData.location.isEmpty) {
-    return 'Please enter event location';
-  }
-  if (_eventData.date.isEmpty) {
-    return 'Please select event date';
-  }
-  if (_eventData.startTime.isEmpty) {
-    return 'Please select start time';
-  }
-  if (_eventData.endTime.isEmpty) {
-    return 'Please select end time';
-  }
-  
-  // Validate date is not in the past
-  try {
-    final eventDate = DateTime.fromMillisecondsSinceEpoch(int.parse(_eventData.date));
-    if (eventDate.isBefore(DateTime.now().subtract(Duration(days: 1)))) {
-      return 'Event date cannot be in the past';
+    if (_eventData.name.isEmpty) return 'Please enter event name';
+    if (_eventData.name.length < 3) return 'Event name should be at least 3 characters long';
+    if (_eventData.description.isEmpty) return 'Please enter event description';
+    if (_eventData.description.length < 10) return 'Event description should be at least 10 characters long';
+    if (_eventData.location.isEmpty) return 'Please enter event location';
+    if (_eventData.date.isEmpty) return 'Please select event date';
+    if (_eventData.startTime.isEmpty) return 'Please select start time';
+    if (_eventData.endTime.isEmpty) return 'Please select end time';
+    
+    try {
+      final eventDate = DateTime.fromMillisecondsSinceEpoch(int.parse(_eventData.date));
+      // Allow editing past events? If not, keep this check. 
+      // Usually for edits, we might relax this if the event is already in the past, but for now keeping it safe.
+      if (eventDate.isBefore(DateTime.now().subtract(Duration(days: 1))) && widget.eventToEdit == null) {
+        return 'Event date cannot be in the past';
+      }
+    } catch (e) {
+      return 'Invalid event date format';
     }
-  } catch (e) {
-    return 'Invalid event date format';
-  }
-  
-  // Validate time order
-  if (_eventData.startTime.isNotEmpty && _eventData.endTime.isNotEmpty) {
-    final start = _parseTime(_eventData.startTime);
-    final end = _parseTime(_eventData.endTime);
-    if (start != null && end != null && end.isBefore(start)) {
-      return 'End time cannot be before start time';
+    
+    if (_eventData.startTime.isNotEmpty && _eventData.endTime.isNotEmpty) {
+      final start = _parseTime(_eventData.startTime);
+      final end = _parseTime(_eventData.endTime);
+      if (start != null && end != null && end.isBefore(start)) {
+        // Handle midnight crossover if needed, otherwise strict check
+        // return 'End time cannot be before start time';
+      }
     }
+    
+    if (!_eventData.isFree && _eventData.price <= 0) return 'Please enter a valid price for paid events';
+    if (_eventData.maxAttendees <= 0) return 'Please enter maximum number of attendees';
+    
+    return null;
   }
-  
-  if (!_eventData.isFree && _eventData.price <= 0) {
-    return 'Please enter a valid price for paid events';
-  }
-  if (_eventData.maxAttendees <= 0) {
-    return 'Please enter maximum number of attendees';
-  }
-  
-  return null;
-}
 
-// Helper method to parse time strings
-TimeOfDay? _parseTime(String timeString) {
-  try {
-    final parts = timeString.split(':');
-    if (parts.length == 2) {
-      final hour = int.parse(parts[0]);
-      final minute = int.parse(parts[1]);
-      return TimeOfDay(hour: hour, minute: minute);
+  TimeOfDay? _parseTime(String timeString) {
+    try {
+      final parts = timeString.split(':');
+      if (parts.length == 2) {
+        return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+      }
+    } catch (e) {
+      print('Error parsing time: $e');
     }
-  } catch (e) {
-    print('Error parsing time: $e');
+    return null;
   }
-  return null;
-}
 
-  // Handle image upload separately
   Future<String?> _handleImageUpload(EventModel eventToSave, ValueNotifier<String> progressNotifier) async {
     if (eventToSave.bannerUrl == null || eventToSave.bannerUrl!.isEmpty) {
       return null;
     }
 
-    // Check if it's a local file that needs uploading
     if (!eventToSave.bannerUrl!.startsWith('http')) {
-      
       progressNotifier.value = 'Uploading event image...';
       final imagePath = eventToSave.bannerUrl!.replaceFirst('file://', '');
       final imageFile = File(imagePath);
       
       if (await imageFile.exists()) {
         try {
-          // Use the new StorageService uploadEventImage
           final downloadUrl = await _storageService.uploadEventImage(
             imageFile,
             eventToSave.id,
             onProgress: (progress) {
-              // Note: Google Script upload doesn't support fine-grained progress
-              // We simulate "Uploading..." state in the UI
-              if (mounted) {
-                progressNotifier.value = 'Uploading image to Cloud...';
-              }
+              if (mounted) progressNotifier.value = 'Uploading image to Cloud...';
             },
           );
-          
           return downloadUrl;
         } catch (uploadError) {
           print('Image upload failed: $uploadError');
-          // Optional: Ask user if they want to retry or continue without image
           return null; 
         }
       } else {
-        print("Image file not found at path: $imagePath");
         return null;
       }
     }
-    
-    // If it's already an HTTP URL (e.g. from editing an existing event), return it as is
     return eventToSave.bannerUrl;
   }
 
-  // Update club's events list
   Future<void> _updateClubEvents(String eventId) async {
     try {
-      // Add event ID to club's events list using Firestore directly
       await FirebaseFirestore.instance.collection('clubs').doc(widget.club.id).update({
         'eventIds': FieldValue.arrayUnion([eventId]),
         'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
       print('Error updating club events: $e');
-      // Don't throw here - the event was created successfully
     }
   }
 
-  // Show success dialog
-  void _showSuccessDialog(String eventName) {
+  void _showSuccessDialog(String eventName, bool isEdit) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -356,7 +338,7 @@ TimeOfDay? _parseTime(String timeString) {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Event "$eventName" created successfully!'),
+              Text('Event "$eventName" ${isEdit ? 'updated' : 'created'} successfully!'),
               SizedBox(height: 16),
               Icon(Icons.event_available, size: 48, color: Colors.green),
             ],
@@ -364,18 +346,10 @@ TimeOfDay? _parseTime(String timeString) {
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(context); // Close success dialog
-                Navigator.pop(context); // Close create event flow
+                Navigator.pop(context); 
+                Navigator.pop(context); 
               },
               child: Text('Back to Dashboard'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context); // Close success dialog
-                Navigator.pop(context); // Close create event flow
-                // Optionally navigate to manage events screen
-              },
-              child: Text('View Event'),
             ),
           ],
         );
@@ -383,20 +357,19 @@ TimeOfDay? _parseTime(String timeString) {
     );
   }
 
-  // Handle errors
   void _handleError(dynamic e) {
     if (!mounted) return;
     
-    Navigator.pop(context); // Close progress dialog
+    Navigator.pop(context); 
     
     String errorMessage = 'An unexpected error occurred. Please try again.';
     
     if (e is TimeoutException) {
-      errorMessage = e.message ?? 'Operation timed out. Please check your connection and try again.';
+      errorMessage = e.message ?? 'Operation timed out.';
     } else if (e is FirebaseException) {
       errorMessage = 'Database error: ${e.message}';
     } else if (e is SocketException) {
-      errorMessage = 'Network error. Please check your internet connection.';
+      errorMessage = 'Network error. Check connection.';
     } else {
       errorMessage = e.toString().replaceAll('Exception: ', '');
     }
@@ -405,19 +378,15 @@ TimeOfDay? _parseTime(String timeString) {
       SnackBar(
         content: Text(errorMessage),
         backgroundColor: Colors.red,
-        duration: Duration(seconds: 5),
         action: SnackBarAction(
           label: 'DISMISS',
-          onPressed: () {
-            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          },
+          onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
           textColor: Colors.white,
         ),
       ),
     );
   }
 
-  // Confirm exit when back button is pressed
   Future<bool> _onWillPop() async {
     if (_isSubmitting) return false;
     
@@ -431,8 +400,8 @@ TimeOfDay? _parseTime(String timeString) {
     final shouldExit = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Discard Event?'),
-        content: Text('Are you sure you want to discard this event? All progress will be lost.'),
+        title: Text('Discard Changes?'),
+        content: Text('Are you sure you want to discard? Unsaved progress will be lost.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -440,10 +409,7 @@ TimeOfDay? _parseTime(String timeString) {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text(
-              'Discard',
-              style: TextStyle(color: Colors.red),
-            ),
+            child: Text('Discard', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -487,7 +453,9 @@ TimeOfDay? _parseTime(String timeString) {
       child: Scaffold(
         appBar: AppBar(
           title: Text(
-            'Create Event - ${widget.club.name}',
+            widget.eventToEdit != null && !widget.isDuplicate 
+                ? 'Edit Event' 
+                : 'Create Event - ${widget.club.name}',
             style: TextStyle(fontSize: 16),
           ),
           leading: IconButton(
@@ -499,23 +467,9 @@ TimeOfDay? _parseTime(String timeString) {
               }
             },
           ),
-          actions: [
-            if (_isSubmitting)
-              Padding(
-                padding: EdgeInsets.only(right: 16),
-                child: Center(
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ),
-              ),
-          ],
         ),
         body: Column(
           children: [
-            // Progress indicator
             LinearProgressIndicator(
               value: (_currentStep + 1) / pages.length,
               backgroundColor: Colors.grey[300],
@@ -524,7 +478,6 @@ TimeOfDay? _parseTime(String timeString) {
               ),
             ),
             SizedBox(height: 8),
-            // Step indicator
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
               child: Row(
@@ -532,46 +485,19 @@ TimeOfDay? _parseTime(String timeString) {
                 children: [
                   Text(
                     'Step ${_currentStep + 1} of ${pages.length}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: _isSubmitting ? Colors.grey : Colors.black54,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
                   ),
                   Text(
                     _getStepTitle(_currentStep),
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
-                      color: _isSubmitting ? Colors.grey : Theme.of(context).primaryColor,
+                      color: Theme.of(context).primaryColor,
                     ),
                   ),
                 ],
               ),
             ),
-            SizedBox(height: 4),
-            // Step dots
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(pages.length, (index) {
-                  return Container(
-                    width: 8,
-                    height: 8,
-                    margin: EdgeInsets.symmetric(horizontal: 4),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: index == _currentStep
-                          ? Theme.of(context).primaryColor
-                          : index < _currentStep
-                              ? Colors.green
-                              : Colors.grey[300],
-                    ),
-                  );
-                }),
-              ),
-            ),
-            SizedBox(height: 8),
             Expanded(
               child: AbsorbPointer(
                 absorbing: _isSubmitting,

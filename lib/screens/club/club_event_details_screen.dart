@@ -1,3 +1,4 @@
+// club_event_details_screen.dart
 import 'package:flutter/material.dart';
 import '../../models/event.dart';
 import '../../models/club.dart';
@@ -5,13 +6,19 @@ import '../../services/storage_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'create_event/create_event_flow.dart';
 import 'dart:io';
+import 'dart:async'; // Added for Completer
 
-// --- IMPORTS FOR EXPORT ---
+// --- MAP & LOCATION IMPORTS ---
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:url_launcher/url_launcher.dart'; // Ensure you have this in pubspec.yaml
+
+// --- EXPORT IMPORTS ---
 import 'package:csv/csv.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw; // PDF Widgets
+import 'package:pdf/widgets.dart' as pw;
 
 class ClubEventDetailsScreen extends StatefulWidget {
   final EventModel event;
@@ -26,6 +33,101 @@ class ClubEventDetailsScreen extends StatefulWidget {
 class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
   bool _isLoading = false;
 
+  // --- MAP STATE VARIABLES ---
+  LatLng? _eventLatLng;
+  Set<Marker> _markers = {};
+  bool _isMapLoading = true;
+  final Completer<GoogleMapController> _mapController = Completer();
+
+  // Simple map style to hide clutter
+  final String _mapStyle = '''
+  [
+    {
+      "featureType": "poi",
+      "elementType": "labels.icon",
+      "stylers": [{"visibility": "off"}]
+    }
+  ]
+  ''';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEventLocation();
+  }
+
+  // Convert the address string to coordinates
+  void _loadEventLocation() {
+    // 1. Check if we have exact GPS coordinates saved
+    if (widget.event.latitude != null && widget.event.longitude != null) {
+      final position = LatLng(widget.event.latitude!, widget.event.longitude!);
+      
+      if (mounted) {
+        setState(() {
+          _eventLatLng = position;
+          _markers.add(
+            Marker(
+              markerId: MarkerId('event_location'),
+              position: position,
+              infoWindow: InfoWindow(title: widget.event.location),
+            ),
+          );
+          _isMapLoading = false;
+        });
+      }
+    } 
+    // 2. Fallback: If old event (no GPS), try to find address by text
+    else if (widget.event.location.isNotEmpty) {
+      _resolveAddressFallback();
+    } else {
+      setState(() => _isMapLoading = false);
+    }
+  }
+
+  Future<void> _resolveAddressFallback() async {
+    try {
+      List<Location> locations = await locationFromAddress(widget.event.location);
+      if (locations.isNotEmpty) {
+        final loc = locations.first;
+        final position = LatLng(loc.latitude, loc.longitude);
+        if (mounted) {
+          setState(() {
+            _eventLatLng = position;
+            _markers.add(Marker(markerId: MarkerId('event'), position: position));
+            _isMapLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isMapLoading = false);
+    }
+  }
+
+  // Open external map app for navigation
+  Future<void> _launchMapsApp() async {
+    if (_eventLatLng == null) return;
+    
+    final double lat = _eventLatLng!.latitude;
+    final double lng = _eventLatLng!.longitude;
+    
+    // Create URLs for Google Maps (Android/iOS) and Apple Maps (iOS fallback)
+    final Uri googleMapsUrl = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng");
+    final Uri appleMapsUrl = Uri.parse("https://maps.apple.com/?q=$lat,$lng");
+
+    if (await canLaunchUrl(googleMapsUrl)) {
+      await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication);
+    } else if (await canLaunchUrl(appleMapsUrl)) {
+      await launchUrl(appleMapsUrl, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Could not open maps application.")),
+        );
+      }
+    }
+  }
+
+  // --- GETTERS ---
   bool get _isPastEvent {
     if (widget.event.date == null) return false;
     final timestamp = int.tryParse(widget.event.date!) ?? 0;
@@ -37,8 +139,7 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
   bool get _isPublished => widget.event.status == 'published';
   bool get _isArchived => widget.event.status == 'archived';
 
-  // --- EXPORT LOGIC ---
-
+  // --- EXPORT LOGIC (Kept same as before) ---
   void _showExportOptions() {
     if (widget.event.attendees.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("No attendees to export.")));
@@ -88,56 +189,71 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Fetch Data
       List<Map<String, String>> participants = [];
-      
-      for (String userId in widget.event.attendees) {
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
-        if (userDoc.exists) {
-          final data = userDoc.data()!;
-          participants.add({
-            'name': data['name'] ?? 'Unknown',
-            'email': data['email'] ?? 'No Email',
-            'role': data['role'] ?? 'Student',
-            'status': 'Registered', // Placeholder for QR status
-          });
-        }
+
+      // 1. Fetch data from 'registers' (matching your Firestore Rule)
+      final registrationSnapshot = await FirebaseFirestore.instance
+          .collection('registers') 
+          .where('eventId', isEqualTo: widget.event.id)
+          .get();
+
+      for (var doc in registrationSnapshot.docs) {
+        final data = doc.data();
+        
+        // 2. Map the fields. 
+        // Based on your Register model, the field names are 'fullName' and 'phoneNumber'
+        participants.add({
+          'name': data['fullName'] ?? 'Unknown',
+          'email': data['email'] ?? 'No Email',
+          'phone': data['phoneNumber'] ?? '-', 
+          'status': data['status'] ?? 'Registered',
+        });
       }
 
-      // 2. Generate File
+      if (participants.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("No registration records found for this event.")));
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // 2. Generate File (PDF or CSV)
       final directory = await getTemporaryDirectory();
+      final safeEventName = widget.event.name.replaceAll(RegExp(r'[^\w\s]+'), '');
       final dateStr = DateTime.now().toString().split(' ')[0];
-      final safeEventName = widget.event.name.replaceAll(RegExp(r'[^\w\s]+'), ''); // Remove special chars
       File file;
 
       if (isPdf) {
-        // --- PDF GENERATION ---
         final pdf = pw.Document();
-        
         pdf.addPage(
           pw.MultiPage(
             pageFormat: PdfPageFormat.a4,
             build: (pw.Context context) {
               return [
                 pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Text(widget.event.name, style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold)),
-                      pw.Text(dateStr),
-                    ],
-                  ),
-                  pw.SizedBox(height: 5), // Spacing between text and line
-                  pw.Divider(),           // The line that makes it look like a header
-                ],
-              ),
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Text(widget.event.name,
+                            style: pw.TextStyle(
+                                fontSize: 24, fontWeight: pw.FontWeight.bold)),
+                        pw.Text(dateStr),
+                      ],
+                    ),
+                    pw.SizedBox(height: 5),
+                    pw.Divider(),
+                  ],
+                ),
                 pw.SizedBox(height: 20),
                 pw.Table.fromTextArray(
                   context: context,
-                  headers: ['Name', 'Email', 'Role', 'Status'],
-                  data: participants.map((p) => [p['name'], p['email'], p['role'], p['status']]).toList(),
+                  headers: ['Name', 'Email', 'Phone No', 'Status'],
+                  data: participants
+                      .map((p) =>
+                          [p['name'], p['email'], p['phone'], p['status']])
+                      .toList(),
                   headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
                   headerDecoration: pw.BoxDecoration(color: PdfColors.grey300),
                   cellHeight: 30,
@@ -149,50 +265,43 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
                   },
                 ),
                 pw.Container(
-                  alignment: pw.Alignment.centerRight, // Optional: aligns text to the right
+                  alignment: pw.Alignment.centerRight,
                   margin: const pw.EdgeInsets.only(top: 20),
-                  child: pw.Text("Generated by Club Event App", style: pw.TextStyle(color: PdfColors.grey, fontSize: 10)),
+                  child: pw.Text("Generated by Club Event App",
+                      style: pw.TextStyle(color: PdfColors.grey, fontSize: 10)),
                 ),
               ];
             },
           ),
         );
-
         final path = "${directory.path}/${safeEventName}_Report.pdf";
         file = File(path);
         await file.writeAsBytes(await pdf.save());
-
       } else {
-        // --- CSV GENERATION ---
         List<List<String>> csvData = [
-          ["Participant Name", "Email", "Role", "Status"],
-          ...participants.map((p) => [p['name']!, p['email']!, p['role']!, p['status']!]),
+          ["Participant Name", "Email", "Phone No", "Status"],
+          ...participants.map((p) =>
+              [p['name']!, p['email']!, p['phone']!, p['status']!]),
         ];
-
         String csvString = const ListToCsvConverter().convert(csvData);
         final path = "${directory.path}/${safeEventName}_Report.csv";
         file = File(path);
         await file.writeAsString(csvString);
       }
 
-      // 3. Share / Download
-      // The Share sheet includes "Save to Files" (iOS) and "Save to..." (Android)
-      // which acts as the "Download to Local" feature securely.
-      await Share.shareXFiles(
-        [XFile(file.path)], 
-        text: 'Participant Report for ${widget.event.name}'
-      );
-
+      // 3. Share
+      await Share.shareXFiles([XFile(file.path)],
+          text: 'Participant Report for ${widget.event.name}');
     } catch (e) {
       print("Export Error: $e");
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to export: $e")));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text("Failed to export: $e")));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // --- EXISTING LOGIC (Unchanged) ---
-
+  // --- MANAGEMENT OPTIONS ---
   void _showManagementOptions() {
     showModalBottomSheet(
       context: context,
@@ -207,11 +316,9 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
               children: [
                 Text('Manage Event', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 SizedBox(height: 16),
-
                 if (!_isPastEvent && !_isArchived)
                   _buildOptionTile(Icons.edit, Colors.blue, 'Edit Event', 'Update details', 
                     () => _navigateToEdit(isDuplicate: false)),
-                
                 _buildOptionTile(
                   _isPublished ? Icons.archive : Icons.unarchive,
                   _isPublished ? Colors.orange : Colors.green,
@@ -219,10 +326,8 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
                   _isPublished ? 'Move to archive list' : 'Make visible to everyone',
                   _toggleArchiveStatus,
                 ),
-
                 _buildOptionTile(Icons.copy, Colors.purple, 'Duplicate Event', 'Create copy of this event', 
                   () => _navigateToEdit(isDuplicate: true)),
-
                 Divider(height: 32),
                 _buildOptionTile(Icons.delete_forever, Colors.red, 'Delete Event', 'Permanently remove', _confirmDelete),
               ],
@@ -252,13 +357,8 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
   Future<void> _toggleArchiveStatus() async {
     final newStatus = _isPublished ? 'archived' : 'published';
     setState(() => _isLoading = true);
-    
     try {
-      await FirebaseFirestore.instance
-          .collection('events')
-          .doc(widget.event.id)
-          .update({'status': newStatus});
-      
+      await FirebaseFirestore.instance.collection('events').doc(widget.event.id).update({'status': newStatus});
       if (mounted) {
         String msg = newStatus == 'archived' ? 'Event Archived' : 'Event Published';
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -274,7 +374,6 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
 
   void _navigateToEdit({required bool isDuplicate}) {
     EventModel eventPass;
-
     if (isDuplicate) {
       eventPass = widget.event.copyWith(
         id: '', 
@@ -337,7 +436,6 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
   Widget _buildStatusBadge() {
     Color color;
     String text;
-
     if (_isPublished) {
       color = Colors.green;
       text = 'PUBLISHED';
@@ -348,17 +446,10 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
       color = Colors.orange;
       text = 'DRAFT';
     }
-
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(color: color, fontWeight: FontWeight.bold),
-      ),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
+      child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
     );
   }
 
@@ -382,15 +473,66 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
               ],
             ),
             SizedBox(height: 6),
-            Text(
-              value, 
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87),
-              maxLines: 1, 
-              overflow: TextOverflow.ellipsis
-            ),
+            Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87), maxLines: 1, overflow: TextOverflow.ellipsis),
           ],
         ),
       ),
+    );
+  }
+
+  // --- MAP WIDGET BUILDER ---
+  Widget _buildMapSection() {
+    if (widget.event.location.isEmpty) return SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text("Location Map", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            if (_eventLatLng != null)
+              TextButton.icon(
+                onPressed: _launchMapsApp,
+                icon: Icon(Icons.directions, size: 18),
+                label: Text("Get Directions"),
+                style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
+              ),
+          ],
+        ),
+        SizedBox(height: 12),
+        Container(
+          height: 200,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey[300]!),
+            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: _isMapLoading
+              ? Center(child: CircularProgressIndicator())
+              : _eventLatLng == null
+                ? Center(child: Text("Could not load map for this address."))
+                : GoogleMap(
+                    mapType: MapType.normal,
+                    initialCameraPosition: CameraPosition(
+                      target: _eventLatLng!,
+                      zoom: 15,
+                    ),
+                    markers: _markers,
+                    zoomControlsEnabled: false,
+                    scrollGesturesEnabled: false, // Static map
+                    zoomGesturesEnabled: true,    // Allow zooming
+                    onMapCreated: (GoogleMapController controller) {
+                      _mapController.complete(controller);
+                      controller.setMapStyle(_mapStyle);
+                    },
+                  ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -412,26 +554,21 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Image Logic
+                // Event Banner
                 Builder(
                   builder: (context) {
                     final rawUrl = widget.event.bannerUrl;
                     if (rawUrl == null || rawUrl.isEmpty || rawUrl == 'file:///') {
-                      return Container(
-                        height: 200, width: double.infinity, color: Colors.grey[200], 
-                        child: Center(child: Icon(Icons.image_not_supported, color: Colors.grey))
-                      );
+                      return Container(height: 200, width: double.infinity, color: Colors.grey[200], child: Center(child: Icon(Icons.image_not_supported, color: Colors.grey)));
                     }
                     if (rawUrl.startsWith('http')) {
                       return FutureBuilder<String?>(
                         future: StorageService().resolveImageUrl(rawUrl),
                         builder: (context, snapshot) {
-                          if (snapshot.connectionState == ConnectionState.waiting) {
-                            return Container(height: 200, color: Colors.grey[200]);
-                          }
+                          if (snapshot.connectionState == ConnectionState.waiting) return Container(height: 200, color: Colors.grey[200]);
                           return Image.network(
                             snapshot.data ?? rawUrl, height: 200, width: double.infinity, fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => Container(height: 200, color: Colors.grey[200]),
+                            errorBuilder: (_, __, ___) => Container(height: 200, color: Colors.grey[200]),
                           );
                         },
                       );
@@ -460,41 +597,25 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
                       
                       Row(
                         children: [
-                          _buildDetailItem(
-                            Icons.people, 
-                            "Attendance", 
-                            "${widget.event.attendees.length} / ${widget.event.maxAttendees > 0 ? widget.event.maxAttendees : 'Unlimited'}", 
-                            Colors.blue
-                          ),
+                          _buildDetailItem(Icons.people, "Attendance", "${widget.event.attendees.length} / ${widget.event.maxAttendees > 0 ? widget.event.maxAttendees : 'Unlimited'}", Colors.blue),
                           SizedBox(width: 12),
-                          _buildDetailItem(
-                            Icons.attach_money, 
-                            "Fee", 
-                            widget.event.isFree ? "Free" : "\$${widget.event.price.toStringAsFixed(2)}", 
-                            Colors.green
-                          ),
+                          _buildDetailItem(Icons.attach_money, "Fee", widget.event.isFree ? "Free" : "\$${widget.event.price.toStringAsFixed(2)}", Colors.green),
                         ],
                       ),
                       SizedBox(height: 12),
                       Row(
                         children: [
-                          _buildDetailItem(
-                            Icons.category, 
-                            "Category", 
-                            widget.event.category, 
-                            Colors.purple
-                          ),
+                          _buildDetailItem(Icons.category, "Category", widget.event.category, Colors.purple),
                           SizedBox(width: 12),
-                          _buildDetailItem(
-                            Icons.location_on, 
-                            "Location", 
-                            widget.event.location, 
-                            Colors.orange
-                          ),
+                          _buildDetailItem(Icons.location_on, "Location", widget.event.location, Colors.orange),
                         ],
                       ),
 
-                      // Participant Management
+                      // --- NEW: Map Section ---
+                      SizedBox(height: 24),
+                      _buildMapSection(),
+                      // -------------------------
+
                       SizedBox(height: 32),
                       Text("Participant Management", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       SizedBox(height: 12),
@@ -502,7 +623,7 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
-                          onPressed: _showExportOptions, // CHANGED: Calls the new dialog
+                          onPressed: _showExportOptions,
                           icon: Icon(Icons.file_download),
                           label: Text("Export Participant Report"),
                           style: OutlinedButton.styleFrom(

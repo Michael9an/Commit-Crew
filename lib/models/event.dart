@@ -9,6 +9,8 @@ class EventModel {
   final String endTime;
   final String? bannerUrl;
   final String location;
+  final double? latitude;
+  final double? longitude;
   final String clubId;
   final String clubName;
   final String? clubImageUrl;
@@ -40,6 +42,8 @@ class EventModel {
     required this.endTime,
     this.bannerUrl,
     required this.location,
+    this.latitude,
+    this.longitude,
     required this.clubId,
     required this.clubName,
     this.clubImageUrl,
@@ -63,55 +67,56 @@ class EventModel {
     this.contactPhone = '',
   });
 
-  factory EventModel.fromFirestore(Map<String, dynamic> data, String documentId) {
-  // Helper function to convert Firestore Timestamp to DateTime
-  DateTime? _convertToDateTime(dynamic timestamp) {
-    if (timestamp == null) return null;
-    if (timestamp is Timestamp) {
-      return timestamp.toDate();
-    } else if (timestamp is int) {
-      return DateTime.fromMillisecondsSinceEpoch(timestamp);
-    } else if (timestamp is String) {
-      return DateTime.tryParse(timestamp);
+ factory EventModel.fromFirestore(Map<String, dynamic> data, String documentId) {
+    
+    DateTime? _convertToDateTime(dynamic timestamp) {
+      if (timestamp == null) return null;
+      if (timestamp is Timestamp) return timestamp.toDate();
+      if (timestamp is int) return DateTime.fromMillisecondsSinceEpoch(timestamp);
+      if (timestamp is String) return DateTime.tryParse(timestamp);
+      return null;
     }
-    return null;
-  }
-  
 
-  return EventModel(
-    id: documentId, // Use the document ID instead of data['id']
-    name: data['name'] ?? '',
-    description: data['description'] ?? '',
-    date: data['date'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-    startTime: data['startTime'] ?? '',
-    endTime: data['endTime'] ?? '',
-    bannerUrl: data['bannerUrl'],
-    location: data['location'] ?? '',
-    clubId: data['clubId'] ?? '',
-    clubName: data['clubName'] ?? '',
-    clubImageUrl: data['clubImageUrl'],
-    maxAttendees: data['maxAttendees'] ?? 0,
-    price: (data['price'] ?? 0.0).toDouble(),
-    isFree: data['isFree'] ?? true,
-    refundPolicy: data['refundPolicy'],
-    publishTime: data['publishTime'],
-    createdAt: _convertToDateTime(data['createdAt']),
-    status: data['status'] ?? 'upcoming',
-    attendees: List<String>.from(data['attendees'] ?? []),
-    attendeesEmail: List<String>.from(data['attendeesEmail'] ?? []),
-    waitlist: List<String>.from(data['waitlist'] ?? []),
-    views: data['views'] ?? 0,
-    shares: data['shares'] ?? 0,
-    isCancelled: data['isCancelled'] ?? false,
-    updatedAt: _convertToDateTime(data['updatedAt']),
-    category: data['category'] ?? 'General',
-    tags: List<String>.from(data['tags'] ?? []),
-    contactEmail: data['contactEmail'] ?? '',
-    contactPhone: data['contactPhone'] ?? '',
-  );
-}
+    return EventModel(
+      id: documentId,
+      name: data['name'] ?? '',
+      description: data['description'] ?? '',
+      date: data['date'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      startTime: data['startTime'] ?? '',
+      endTime: data['endTime'] ?? '',
+      bannerUrl: data['bannerUrl'],
+      location: data['location'] ?? '',
+      
+      // --- FIXED LINES ---
+      latitude: data['latitude']?.toDouble(), 
+      longitude: data['longitude']?.toDouble(),
+      // -------------------
+      
+      clubId: data['clubId'] ?? '',
+      clubName: data['clubName'] ?? '',
+      clubImageUrl: data['clubImageUrl'],
+      maxAttendees: data['maxAttendees'] ?? 0,
+      price: (data['price'] ?? 0.0).toDouble(),
+      isFree: data['isFree'] ?? true,
+      refundPolicy: data['refundPolicy'],
+      publishTime: data['publishTime'],
+      createdAt: _convertToDateTime(data['createdAt']),
+      status: data['status'] ?? 'upcoming',
+      attendees: List<String>.from(data['attendees'] ?? []),
+      attendeesEmail: List<String>.from(data['attendeesEmail'] ?? []),
+      waitlist: List<String>.from(data['waitlist'] ?? []),
+      views: data['views'] ?? 0,
+      shares: data['shares'] ?? 0,
+      isCancelled: data['isCancelled'] ?? false,
+      updatedAt: _convertToDateTime(data['updatedAt']),
+      category: data['category'] ?? 'General',
+      tags: List<String>.from(data['tags'] ?? []),
+      contactEmail: data['contactEmail'] ?? '',
+      contactPhone: data['contactPhone'] ?? '',
+    );
+  }
+
   Map<String, dynamic> toFirestore() {
-    // Helper function to convert DateTime to Firestore Timestamp
     dynamic _convertToTimestamp(DateTime? dateTime) {
       if (dateTime == null) return FieldValue.serverTimestamp();
       return Timestamp.fromDate(dateTime);
@@ -126,6 +131,8 @@ class EventModel {
       'endTime': endTime,
       'bannerUrl': bannerUrl,
       'location': location,
+      'latitude': latitude,
+      'longitude': longitude,
       'clubId': clubId,
       'clubName': clubName,
       'clubImageUrl': clubImageUrl,
@@ -150,8 +157,8 @@ class EventModel {
     };
   }
 
+  // 3. Corrected fromJson (Added missing lat/lng logic)
   factory EventModel.fromJson(Map<String, dynamic> json) {
-    // Helper function to parse date strings
     DateTime? _parseDateTime(String? dateString) {
       if (dateString == null) return null;
       return DateTime.tryParse(dateString);
@@ -166,6 +173,8 @@ class EventModel {
       endTime: json['endTime'] ?? '',
       bannerUrl: json['bannerUrl'],
       location: json['location'],
+      latitude: json['latitude']?.toDouble(),
+      longitude: json['longitude']?.toDouble(),
       clubId: json['clubId'],
       clubName: json['clubName'],
       clubImageUrl: json['clubImageUrl'],
@@ -177,6 +186,7 @@ class EventModel {
       createdAt: _parseDateTime(json['createdAt']),
       status: json['status'] ?? 'upcoming',
       attendees: List<String>.from(json['attendees'] ?? []),
+      attendeesEmail: List<String>.from(json['attendeesEmail'] ?? []), // Added this missing field
       waitlist: List<String>.from(json['waitlist'] ?? []),
       views: json['views'] ?? 0,
       shares: json['shares'] ?? 0,
@@ -199,6 +209,8 @@ class EventModel {
       'endTime': endTime,
       'bannerUrl': bannerUrl,
       'location': location,
+      'latitude': latitude,
+      'longitude': longitude,
       'clubId': clubId,
       'clubName': clubName,
       'clubImageUrl': clubImageUrl,
@@ -210,6 +222,7 @@ class EventModel {
       'createdAt': createdAt?.toIso8601String(),
       'status': status,
       'attendees': attendees,
+      'attendeesEmail': attendeesEmail, // Added this missing field
       'waitlist': waitlist,
       'views': views,
       'shares': shares,
@@ -322,6 +335,8 @@ class EventModel {
     String? endTime,
     String? bannerUrl,
     String? location,
+    double? latitude, 
+    double? longitude, 
     String? clubId,
     String? clubName,
     String? clubImageUrl,
@@ -352,6 +367,8 @@ class EventModel {
       endTime: endTime ?? this.endTime,
       bannerUrl: bannerUrl ?? this.bannerUrl,
       location: location ?? this.location,
+      latitude: latitude ?? this.latitude, 
+      longitude: longitude ?? this.longitude, 
       clubId: clubId ?? this.clubId,
       clubName: clubName ?? this.clubName,
       clubImageUrl: clubImageUrl ?? this.clubImageUrl,
