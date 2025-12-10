@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 import '../../models/event.dart';
 import '../../models/club.dart';
-import '../../services/firestore_service.dart';
 import '../../services/storage_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'create_event/create_event_flow.dart';
 import 'dart:io';
 
-// --- NEW IMPORTS FOR EXPORT ---
+// --- IMPORTS FOR EXPORT ---
 import 'package:csv/csv.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw; // PDF Widgets
 
 class ClubEventDetailsScreen extends StatefulWidget {
   final EventModel event;
@@ -36,53 +37,149 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
   bool get _isPublished => widget.event.status == 'published';
   bool get _isArchived => widget.event.status == 'archived';
 
-  // --- EXPORT LOGIC START ---
-  Future<void> _exportParticipantReport() async {
+  // --- EXPORT LOGIC ---
+
+  void _showExportOptions() {
     if (widget.event.attendees.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("No attendees to export.")));
       return;
     }
 
+    showModalBottomSheet(
+      context: context,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Export Participant Report', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                SizedBox(height: 16),
+                ListTile(
+                  leading: Icon(Icons.table_chart, color: Colors.green),
+                  title: Text('Export as CSV (Excel)'),
+                  subtitle: Text('Best for spreadsheet analysis'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _generateAndExport(isPdf: false);
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.picture_as_pdf, color: Colors.red),
+                  title: Text('Export as PDF'),
+                  subtitle: Text('Best for printing and sharing'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _generateAndExport(isPdf: true);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _generateAndExport({required bool isPdf}) async {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Define CSV Header
-      List<List<String>> csvData = [
-        ["Participant Name", "Email", "Role", "Registration Date", "Status"],
-      ];
-
-      // 2. Fetch User Details for each Attendee ID
-      // (Optimized: In a real app with 100+ users, consider a backend function or batching)
+      // 1. Fetch Data
+      List<Map<String, String>> participants = [];
+      
       for (String userId in widget.event.attendees) {
         final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
-        
         if (userDoc.exists) {
           final data = userDoc.data()!;
-          csvData.add([
-            data['name'] ?? 'Unknown',
-            data['email'] ?? 'No Email',
-            data['role'] ?? 'Student',
-            DateTime.now().toString().split(' ')[0], // Placeholder for reg date if not stored
-            "Registered", // Future: Change this to "Present" after QR scan
-          ]);
+          participants.add({
+            'name': data['name'] ?? 'Unknown',
+            'email': data['email'] ?? 'No Email',
+            'role': data['role'] ?? 'Student',
+            'status': 'Registered', // Placeholder for QR status
+          });
         }
       }
 
-      // 3. Convert to CSV String
-      String csvString = const ListToCsvConverter().convert(csvData);
-
-      // 4. Get Temporary Directory to save file
+      // 2. Generate File
       final directory = await getTemporaryDirectory();
-      final fileName = "Report_${widget.event.name.replaceAll(' ', '_')}.csv";
-      final path = "${directory.path}/$fileName";
+      final dateStr = DateTime.now().toString().split(' ')[0];
+      final safeEventName = widget.event.name.replaceAll(RegExp(r'[^\w\s]+'), ''); // Remove special chars
+      File file;
 
-      // 5. Write File
-      final file = File(path);
-      await file.writeAsString(csvString);
+      if (isPdf) {
+        // --- PDF GENERATION ---
+        final pdf = pw.Document();
+        
+        pdf.addPage(
+          pw.MultiPage(
+            pageFormat: PdfPageFormat.a4,
+            build: (pw.Context context) {
+              return [
+                pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(widget.event.name, style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold)),
+                      pw.Text(dateStr),
+                    ],
+                  ),
+                  pw.SizedBox(height: 5), // Spacing between text and line
+                  pw.Divider(),           // The line that makes it look like a header
+                ],
+              ),
+                pw.SizedBox(height: 20),
+                pw.Table.fromTextArray(
+                  context: context,
+                  headers: ['Name', 'Email', 'Role', 'Status'],
+                  data: participants.map((p) => [p['name'], p['email'], p['role'], p['status']]).toList(),
+                  headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                  headerDecoration: pw.BoxDecoration(color: PdfColors.grey300),
+                  cellHeight: 30,
+                  cellAlignments: {
+                    0: pw.Alignment.centerLeft,
+                    1: pw.Alignment.centerLeft,
+                    2: pw.Alignment.center,
+                    3: pw.Alignment.center,
+                  },
+                ),
+                pw.Container(
+                  alignment: pw.Alignment.centerRight, // Optional: aligns text to the right
+                  margin: const pw.EdgeInsets.only(top: 20),
+                  child: pw.Text("Generated by Club Event App", style: pw.TextStyle(color: PdfColors.grey, fontSize: 10)),
+                ),
+              ];
+            },
+          ),
+        );
 
-      // 6. Share File
+        final path = "${directory.path}/${safeEventName}_Report.pdf";
+        file = File(path);
+        await file.writeAsBytes(await pdf.save());
+
+      } else {
+        // --- CSV GENERATION ---
+        List<List<String>> csvData = [
+          ["Participant Name", "Email", "Role", "Status"],
+          ...participants.map((p) => [p['name']!, p['email']!, p['role']!, p['status']!]),
+        ];
+
+        String csvString = const ListToCsvConverter().convert(csvData);
+        final path = "${directory.path}/${safeEventName}_Report.csv";
+        file = File(path);
+        await file.writeAsString(csvString);
+      }
+
+      // 3. Share / Download
+      // The Share sheet includes "Save to Files" (iOS) and "Save to..." (Android)
+      // which acts as the "Download to Local" feature securely.
       await Share.shareXFiles(
-        [XFile(path)], 
+        [XFile(file.path)], 
         text: 'Participant Report for ${widget.event.name}'
       );
 
@@ -93,7 +190,8 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-  // --- EXPORT LOGIC END ---
+
+  // --- EXISTING LOGIC (Unchanged) ---
 
   void _showManagementOptions() {
     showModalBottomSheet(
@@ -332,10 +430,7 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
                             return Container(height: 200, color: Colors.grey[200]);
                           }
                           return Image.network(
-                            snapshot.data ?? rawUrl, 
-                            height: 200, 
-                            width: double.infinity, 
-                            fit: BoxFit.cover,
+                            snapshot.data ?? rawUrl, height: 200, width: double.infinity, fit: BoxFit.cover,
                             errorBuilder: (context, error, stackTrace) => Container(height: 200, color: Colors.grey[200]),
                           );
                         },
@@ -399,7 +494,7 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
                         ],
                       ),
 
-                      // Participant Management (EXPORT BUTTON)
+                      // Participant Management
                       SizedBox(height: 32),
                       Text("Participant Management", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       SizedBox(height: 12),
@@ -407,9 +502,9 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
-                          onPressed: _exportParticipantReport, // Calls the real function
+                          onPressed: _showExportOptions, // CHANGED: Calls the new dialog
                           icon: Icon(Icons.file_download),
-                          label: Text("Export Participant Report (CSV)"),
+                          label: Text("Export Participant Report"),
                           style: OutlinedButton.styleFrom(
                             padding: EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
