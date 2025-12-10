@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../models/event.dart';
 import 'dart:io';
 import '../../services/storage_service.dart';
@@ -158,26 +161,70 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                     ],
                   ),
 
+                  if (event.latitude != null && event.longitude != null) ...[
+                    SizedBox(height: 16),
+                    Container(
+                      height: 200,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: FlutterMap(
+                          options: MapOptions(
+                            initialCenter: LatLng(event.latitude!, event.longitude!),
+                            initialZoom: 15.0,
+                          ),
+                          children: [
+                            TileLayer(
+                              urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/{z}/{x}/{y}?access_token={accessToken}',
+                              additionalOptions: {
+                                'accessToken': dotenv.env['MAPBOX_ACCESS_TOKEN'] ?? '',
+                              },
+                            ),
+                            MarkerLayer(
+                              markers: [
+                                Marker(
+                                  point: LatLng(event.latitude!, event.longitude!),
+                                  width: 40,
+                                  height: 40,
+                                  child: Icon(
+                                    Icons.location_on,
+                                    color: Colors.red,
+                                    size: 40,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+
                   SizedBox(height: 16),
 
                   // Register Button
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Successfully registered for ${event.name}!'),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-                      },
+                      onPressed: event.isPast
+                          ? null
+                          : () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Successfully registered for ${event.name}!'),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                            },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
+                        backgroundColor: event.isPast ? Colors.grey : Colors.red,
                         padding: EdgeInsets.symmetric(vertical: 14),
                       ),
                       child: Text(
-                        'Register for Event',
+                        event.isPast ? 'Event Ended' : 'Register for Event',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -292,6 +339,31 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                       ),
                     ),
                     maxLines: 3,
+                  ),
+
+                  SizedBox(height: 12),
+
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Review posted successfully!')),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: Text(
+                        'Submit Review',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
                   ),
 
                   SizedBox(height: 16),
