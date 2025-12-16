@@ -10,8 +10,8 @@ class ReviewService {
   final FirebaseStorage _storage = FirebaseStorage.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  /// Submits a review. 
-  /// Enforces One Review per User per Event by using a composite ID (eventId_userId).
+  // --- 1. CORE REVIEW ACTIONS ---
+
   Future<void> submitReview({
     required String eventId,
     required double rating,
@@ -19,67 +19,91 @@ class ReviewService {
     List<File>? photos,
   }) async {
     final currentUser = _auth.currentUser;
-    if (currentUser == null) {
-      throw Exception("User must be logged in to submit a review.");
-    }
+    if (currentUser == null) throw Exception("User must be logged in.");
 
-    // 1. Create Unique Review ID (EventID + UserID)
     final String reviewId = '${eventId}_${currentUser.uid}';
     final DocumentReference reviewRef = _firestore.collection('reviews').doc(reviewId);
 
-    // 2. CHECK if review already exists
     final docSnapshot = await reviewRef.get();
-    if (docSnapshot.exists) {
-      throw Exception('ALREADY_REVIEWED'); 
-    }
+    if (docSnapshot.exists) throw Exception('ALREADY_REVIEWED');
 
     try {
-      List<String> downloadUrls = [];
-
-      // 3. Image Upload Logic
-      if (photos != null && photos.isNotEmpty) {
-        final uuid = Uuid();
-
-        for (var imageFile in photos) {
-          final String fileName = '${uuid.v4()}.jpg';
-          // Save under: reviews / eventId / uniqueFile.jpg
-          final Reference ref = _storage
-              .ref()
-              .child('reviews')
-              .child(eventId)
-              .child(fileName);
-
-          final UploadTask uploadTask = ref.putFile(imageFile);
-          final TaskSnapshot snapshot = await uploadTask;
-          final String url = await snapshot.ref.getDownloadURL();
-          downloadUrls.add(url);
-        }
-      }
-
-      // 4. Create Review Model
+      List<String> downloadUrls = await _uploadPhotos(eventId, photos);
       final String displayName = currentUser.displayName ?? currentUser.email?.split('@')[0] ?? 'User';
       
       final newReview = ReviewModel(
-        id: reviewId, // Use our composite ID
+        id: reviewId,
         eventId: eventId,
         userId: currentUser.uid,
-        userName: displayName, 
+        userName: displayName,
         rating: rating,
         comment: comment,
         photoUrls: downloadUrls,
       );
 
-      // 5. Save to Firestore using SET (not add)
       await reviewRef.set(newReview.toFirestore());
-      
     } catch (e) {
-      print('Error submitting review: $e');
-      // Re-throw so the UI can catch specific errors like 'ALREADY_REVIEWED'
       rethrow;
     }
   }
 
-  /// Get reviews for a specific event as a Stream
+  // UPDATE (Edit) Review
+  Future<void> updateReview({
+    required String reviewId,
+    required String newComment,
+    required double newRating,
+  }) async {
+    await _firestore.collection('reviews').doc(reviewId).update({
+      'comment': newComment,
+      'rating': newRating,
+      'isEdited': true,
+    });
+  }
+
+  // DELETE Review
+  Future<void> deleteReview(String reviewId) async {
+    await _firestore.collection('reviews').doc(reviewId).delete();
+  }
+
+  // LIKE / UNLIKE Review
+  Future<void> toggleLikeReview(String reviewId) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return;
+
+    final docRef = _firestore.collection('reviews').doc(reviewId);
+    final doc = await docRef.get();
+
+    if (doc.exists) {
+      final List<dynamic> likedBy = doc.data()?['likedBy'] ?? [];
+      if (likedBy.contains(currentUser.uid)) {
+        // Unlike
+        await docRef.update({
+          'likedBy': FieldValue.arrayRemove([currentUser.uid])
+        });
+      } else {
+        // Like
+        await docRef.update({
+          'likedBy': FieldValue.arrayUnion([currentUser.uid])
+        });
+      }
+    }
+  }
+
+  // REPORT Review
+  Future<void> reportReview(String reviewId, String reason) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return;
+
+    await _firestore.collection('reports').add({
+      'targetType': 'review', // Distinguish from event reports
+      'targetId': reviewId,
+      'reporterId': currentUser.uid,
+      'reason': reason,
+      'timestamp': FieldValue.serverTimestamp(),
+      'status': 'pending', // pending, resolved, dismissed
+    });
+  }
+
   Stream<List<ReviewModel>> getEventReviews(String eventId) {
     return _firestore
         .collection('reviews')
@@ -93,17 +117,65 @@ class ReviewService {
     });
   }
 
-  /// Optional: Get a specific review to check if it exists (useful for initial loading states)
-  Future<ReviewModel?> getUserReviewForEvent(String eventId) async {
+  // --- 2. REPLY ACTIONS (Sub-collection) ---
+
+  Stream<List<ReplyModel>> getReplies(String reviewId) {
+    return _firestore
+        .collection('reviews')
+        .doc(reviewId)
+        .collection('replies')
+        .orderBy('createdAt', descending: false)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) => ReplyModel.fromFirestore(doc.data(), doc.id)).toList();
+    });
+  }
+
+  Future<void> addReply(String reviewId, String content) async {
     final currentUser = _auth.currentUser;
-    if (currentUser == null) return null;
+    if (currentUser == null) return;
 
-    final String reviewId = '${eventId}_${currentUser.uid}';
-    final docSnapshot = await _firestore.collection('reviews').doc(reviewId).get();
+    final String displayName = currentUser.displayName ?? currentUser.email?.split('@')[0] ?? 'User';
 
-    if (docSnapshot.exists) {
-      return ReviewModel.fromFirestore(docSnapshot.data()!, docSnapshot.id);
+    final reply = ReplyModel(
+      id: '',
+      userId: currentUser.uid,
+      userName: displayName,
+      content: content,
+    );
+
+    await _firestore
+        .collection('reviews')
+        .doc(reviewId)
+        .collection('replies')
+        .add(reply.toFirestore());
+  }
+
+  Future<void> deleteReply(String reviewId, String replyId) async {
+    await _firestore
+        .collection('reviews')
+        .doc(reviewId)
+        .collection('replies')
+        .doc(replyId)
+        .delete();
+  }
+
+  // --- 3. HELPERS ---
+  Future<List<String>> _uploadPhotos(String eventId, List<File>? photos) async {
+    if (photos == null || photos.isEmpty) return [];
+    
+    List<String> urls = [];
+    final uuid = Uuid();
+
+    for (var imageFile in photos) {
+      final String fileName = '${uuid.v4()}.jpg';
+      final Reference ref = _storage.ref().child('reviews').child(eventId).child(fileName);
+      final UploadTask uploadTask = ref.putFile(imageFile);
+      final TaskSnapshot snapshot = await uploadTask.whenComplete(() => {});
+      if (snapshot.state == TaskState.success) {
+        urls.add(await snapshot.ref.getDownloadURL());
+      }
     }
-    return null;
+    return urls;
   }
 }
