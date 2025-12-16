@@ -360,7 +360,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                           textInputAction: TextInputAction.search,
                           onSubmitted: (_) => _searchMapLocation(),
                           decoration: InputDecoration(
-                            hintText: 'Search map (e.g. USM)...',
+                            hintText: 'Search map (e.g. UTM)...',
                             border: InputBorder.none,
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                             suffixIcon: IconButton(

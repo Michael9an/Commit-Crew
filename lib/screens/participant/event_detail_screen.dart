@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import '../../models/event.dart';
 import 'dart:io';
+import 'dart:async'; // Required for Completer
 import '../../services/storage_service.dart';
 import 'report_screen.dart';
 import 'event_registration_screen.dart';
 import '../../services/registration_service.dart';
 import '../../services/auth_service.dart';
 
+// --- NEW MAP IMPORTS ---
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ParticipantEventDetailScreen extends StatefulWidget {
   final EventModel event;
@@ -26,11 +31,99 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
   bool _isRegistered = false;
   bool _isCheckingRegistration = true;
 
+  // --- MAP STATE VARIABLES ---
+  LatLng? _eventLatLng;
+  Set<Marker> _markers = {};
+  bool _isMapLoading = true;
+  final Completer<GoogleMapController> _mapController = Completer();
+
+  // Simple map style to hide clutter (Same as club screen)
+  final String _mapStyle = '''
+  [
+    {
+      "featureType": "poi",
+      "elementType": "labels.icon",
+      "stylers": [{"visibility": "off"}]
+    }
+  ]
+  ''';
+
   @override
   void initState() {
     super.initState();
     _checkRegistrationStatus();
+    _loadEventLocation(); // Initialize map location logic
   }
+
+  // --- MAP LOGIC START ---
+  void _loadEventLocation() {
+    // 1. Check if we have exact GPS coordinates saved
+    if (widget.event.latitude != null && widget.event.longitude != null) {
+      final position = LatLng(widget.event.latitude!, widget.event.longitude!);
+      
+      if (mounted) {
+        setState(() {
+          _eventLatLng = position;
+          _markers.add(
+            Marker(
+              markerId: MarkerId('event_location'),
+              position: position,
+              infoWindow: InfoWindow(title: widget.event.location),
+            ),
+          );
+          _isMapLoading = false;
+        });
+      }
+    } 
+    // 2. Fallback: Try to find address by text if no GPS provided
+    else if (widget.event.location.isNotEmpty) {
+      _resolveAddressFallback();
+    } else {
+      if (mounted) setState(() => _isMapLoading = false);
+    }
+  }
+
+  Future<void> _resolveAddressFallback() async {
+    try {
+      List<Location> locations = await locationFromAddress(widget.event.location);
+      if (locations.isNotEmpty) {
+        final loc = locations.first;
+        final position = LatLng(loc.latitude, loc.longitude);
+        if (mounted) {
+          setState(() {
+            _eventLatLng = position;
+            _markers.add(Marker(markerId: MarkerId('event'), position: position));
+            _isMapLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isMapLoading = false);
+    }
+  }
+
+  Future<void> _launchMapsApp() async {
+    if (_eventLatLng == null) return;
+    
+    final double lat = _eventLatLng!.latitude;
+    final double lng = _eventLatLng!.longitude;
+    
+    final Uri googleMapsUrl = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng");
+    final Uri appleMapsUrl = Uri.parse("https://maps.apple.com/?q=$lat,$lng");
+
+    if (await canLaunchUrl(googleMapsUrl)) {
+      await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication);
+    } else if (await canLaunchUrl(appleMapsUrl)) {
+      await launchUrl(appleMapsUrl, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Could not open maps application.")),
+        );
+      }
+    }
+  }
+  // --- MAP LOGIC END ---
 
   Future<void> _checkRegistrationStatus() async {
     try {
@@ -60,6 +153,66 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
         _isCheckingRegistration = false;
       });
     }
+  }
+
+  // --- MAP WIDGET BUILDER ---
+  Widget _buildMapSection() {
+    if (widget.event.location.isEmpty) return SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text("Location Map", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            if (_eventLatLng != null)
+              TextButton.icon(
+                onPressed: _launchMapsApp,
+                icon: Icon(Icons.directions, size: 18),
+                label: Text("Get Directions"),
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero, 
+                  visualDensity: VisualDensity.compact
+                ),
+              ),
+          ],
+        ),
+        SizedBox(height: 8),
+        Container(
+          height: 180, // Slightly smaller height for participant view
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[300]!),
+            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: _isMapLoading
+              ? Center(child: CircularProgressIndicator())
+              : _eventLatLng == null
+                ? Center(child: Text("Could not load map for this address.", style: TextStyle(color: Colors.grey)))
+                : GoogleMap(
+                    mapType: MapType.normal,
+                    initialCameraPosition: CameraPosition(
+                      target: _eventLatLng!,
+                      zoom: 15,
+                    ),
+                    markers: _markers,
+                    zoomControlsEnabled: false,
+                    scrollGesturesEnabled: false, // Keep static to allow scrolling the page
+                    zoomGesturesEnabled: true,
+                    onMapCreated: (GoogleMapController controller) {
+                      _mapController.complete(controller);
+                      controller.setMapStyle(_mapStyle);
+                    },
+                  ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -114,7 +267,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                           ],
                         ),
                       ),
-                      // Favorite Button
                       Container(
                         decoration: BoxDecoration(
                           color: Colors.grey[200],
@@ -193,7 +345,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
                   SizedBox(height: 8),
 
-                  // Location
+                  // Location Text
                   Row(
                     children: [
                       Icon(Icons.location_on,
@@ -208,7 +360,11 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                     ],
                   ),
 
-                  SizedBox(height: 16),
+                  // --- INSERTED MAP SECTION HERE ---
+                  _buildMapSection(),
+                  // ---------------------------------
+
+                  SizedBox(height: 24),
 
                   // Register Button
                   SizedBox(
@@ -244,14 +400,12 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                                       ),
                                     ).then((success) {
                                       if (success == true) {
-                                        // Registration was successful
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           SnackBar(
                                             content: Text('Successfully registered for ${widget.event.name}!'),
                                             backgroundColor: Colors.green,
                                           ),
                                         );
-                                        // Refresh registration status
                                         _checkRegistrationStatus();
                                       }
                                     });
@@ -297,7 +451,8 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                   ),
 
                   SizedBox(height: 16),
-
+                  // ... Rest of the file remains the same ...
+                  
                   // Club Information
                   Container(
                     padding: EdgeInsets.all(12),
