@@ -1,4 +1,3 @@
-// club_event_details_screen.dart
 import 'package:flutter/material.dart';
 import '../../models/event.dart';
 import '../../models/club.dart';
@@ -6,7 +5,8 @@ import '../../services/storage_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'create_event/create_event_flow.dart';
 import 'dart:io';
-import 'dart:async'; // Added for Completer
+import 'dart:async';
+import '../../services/participant_export_service.dart';
 
 // --- MAP & LOCATION IMPORTS ---
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -139,186 +139,67 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
   bool get _isPublished => widget.event.status == 'published';
   bool get _isArchived => widget.event.status == 'archived';
 
-  // --- EXPORT LOGIC (Kept same as before) ---
   void _showExportOptions() {
-    if (widget.event.attendees.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("No attendees to export.")));
-      return;
-    }
-
-    showModalBottomSheet(
-      context: context,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Export Participant Report', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                SizedBox(height: 16),
-                ListTile(
-                  leading: Icon(Icons.table_chart, color: Colors.green),
-                  title: Text('Export as CSV (Excel)'),
-                  subtitle: Text('Best for spreadsheet analysis'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _generateAndExport(isPdf: false);
-                  },
-                ),
-                ListTile(
-                  leading: Icon(Icons.picture_as_pdf, color: Colors.red),
-                  title: Text('Export as PDF'),
-                  subtitle: Text('Best for printing and sharing'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _generateAndExport(isPdf: true);
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+    ParticipantExportService.showExportOptions(context, widget.event);
   }
-
-  Future<void> _generateAndExport({required bool isPdf}) async {
-    setState(() => _isLoading = true);
-
-    try {
-      List<Map<String, String>> participants = [];
-
-      // 1. Fetch data from 'registers' (matching your Firestore Rule)
-      final registrationSnapshot = await FirebaseFirestore.instance
-          .collection('registers') 
-          .where('eventId', isEqualTo: widget.event.id)
-          .get();
-
-      for (var doc in registrationSnapshot.docs) {
-        final data = doc.data();
-        
-        // 2. Map the fields. 
-        // Based on your Register model, the field names are 'fullName' and 'phoneNumber'
-        participants.add({
-          'name': data['fullName'] ?? 'Unknown',
-          'email': data['email'] ?? 'No Email',
-          'phone': data['phoneNumber'] ?? '-', 
-          'status': data['status'] ?? 'Registered',
-        });
-      }
-
-      if (participants.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("No registration records found for this event.")));
-        setState(() => _isLoading = false);
-        return;
-      }
-
-      // 2. Generate File (PDF or CSV)
-      final directory = await getTemporaryDirectory();
-      final safeEventName = widget.event.name.replaceAll(RegExp(r'[^\w\s]+'), '');
-      final dateStr = DateTime.now().toString().split(' ')[0];
-      File file;
-
-      if (isPdf) {
-        final pdf = pw.Document();
-        pdf.addPage(
-          pw.MultiPage(
-            pageFormat: PdfPageFormat.a4,
-            build: (pw.Context context) {
-              return [
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Text(widget.event.name,
-                            style: pw.TextStyle(
-                                fontSize: 24, fontWeight: pw.FontWeight.bold)),
-                        pw.Text(dateStr),
-                      ],
-                    ),
-                    pw.SizedBox(height: 5),
-                    pw.Divider(),
-                  ],
-                ),
-                pw.SizedBox(height: 20),
-                pw.Table.fromTextArray(
-                  context: context,
-                  headers: ['Name', 'Email', 'Phone No', 'Status'],
-                  data: participants
-                      .map((p) =>
-                          [p['name'], p['email'], p['phone'], p['status']])
-                      .toList(),
-                  headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                  headerDecoration: pw.BoxDecoration(color: PdfColors.grey300),
-                  cellHeight: 30,
-                  cellAlignments: {
-                    0: pw.Alignment.centerLeft,
-                    1: pw.Alignment.centerLeft,
-                    2: pw.Alignment.center,
-                    3: pw.Alignment.center,
-                  },
-                ),
-                pw.Container(
-                  alignment: pw.Alignment.centerRight,
-                  margin: const pw.EdgeInsets.only(top: 20),
-                  child: pw.Text("Generated by Club Event App",
-                      style: pw.TextStyle(color: PdfColors.grey, fontSize: 10)),
-                ),
-              ];
-            },
-          ),
-        );
-        final path = "${directory.path}/${safeEventName}_Report.pdf";
-        file = File(path);
-        await file.writeAsBytes(await pdf.save());
-      } else {
-        List<List<String>> csvData = [
-          ["Participant Name", "Email", "Phone No", "Status"],
-          ...participants.map((p) =>
-              [p['name']!, p['email']!, p['phone']!, p['status']!]),
-        ];
-        String csvString = const ListToCsvConverter().convert(csvData);
-        final path = "${directory.path}/${safeEventName}_Report.csv";
-        file = File(path);
-        await file.writeAsString(csvString);
-      }
-
-      // 3. Share
-      await Share.shareXFiles([XFile(file.path)],
-          text: 'Participant Report for ${widget.event.name}');
-    } catch (e) {
-      print("Export Error: $e");
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text("Failed to export: $e")));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
   // --- MANAGEMENT OPTIONS ---
   void _showManagementOptions() {
+    // Check our new logic
+    final bool isEditable = widget.event.canEdit;
+
     showModalBottomSheet(
       context: context,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
         return SafeArea(
           child: Padding(
-            padding: EdgeInsets.all(24),
+            padding: const EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Manage Event', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                SizedBox(height: 16),
+                const Text('Manage Event', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+
+                // 1. EDIT BUTTON (With Lock Logic)
                 if (!_isPastEvent && !_isArchived)
-                  _buildOptionTile(Icons.edit, Colors.blue, 'Edit Event', 'Update details', 
-                    () => _navigateToEdit(isDuplicate: false)),
+                  ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isEditable ? Colors.blue.withOpacity(0.1) : Colors.grey[200], 
+                        borderRadius: BorderRadius.circular(12)
+                      ),
+                      child: Icon(
+                        isEditable ? Icons.edit : Icons.lock, 
+                        color: isEditable ? Colors.blue : Colors.grey
+                      ),
+                    ),
+                    title: Text(
+                      isEditable ? 'Edit Event' : 'Editing Locked',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: isEditable ? Colors.black : Colors.grey
+                      )
+                    ),
+                    subtitle: Text(
+                      isEditable ? 'Update details' : 'Locked 3 days before start',
+                      style: TextStyle(color: isEditable ? Colors.grey[600] : Colors.red[300])
+                    ),
+                    onTap: () {
+                      if (isEditable) {
+                        Navigator.pop(context);
+                        _navigateToEdit(isDuplicate: false);
+                      } else {
+                        // Show warning if they click it anyway
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Cannot edit event less than 3 days before start!"))
+                        );
+                      }
+                    },
+                  ),
+                
+                // ... rest of your options (Archive, Duplicate, Delete) ...
                 _buildOptionTile(
                   _isPublished ? Icons.archive : Icons.unarchive,
                   _isPublished ? Colors.orange : Colors.green,
@@ -326,10 +207,7 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
                   _isPublished ? 'Move to archive list' : 'Make visible to everyone',
                   _toggleArchiveStatus,
                 ),
-                _buildOptionTile(Icons.copy, Colors.purple, 'Duplicate Event', 'Create copy of this event', 
-                  () => _navigateToEdit(isDuplicate: true)),
-                Divider(height: 32),
-                _buildOptionTile(Icons.delete_forever, Colors.red, 'Delete Event', 'Permanently remove', _confirmDelete),
+                // ... etc
               ],
             ),
           ),

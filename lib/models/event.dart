@@ -32,6 +32,9 @@ class EventModel {
   final List<String> tags;
   final String contactEmail;
   final String contactPhone;
+  final bool refundEnabled;          // Can users request a refund?
+  final int refundDeadlineDays;      // How many days before event? (e.g. 3)
+  final String refundMethodDetails;  // Instructions (e.g. "Bank Transfer to...")
 
   EventModel({
     required this.id,
@@ -65,6 +68,9 @@ class EventModel {
     this.tags = const [],
     this.contactEmail = '',
     this.contactPhone = '',
+    this.refundEnabled = false,
+    this.refundDeadlineDays = 0,
+    this.refundMethodDetails = '',
   });
 
  factory EventModel.fromFirestore(Map<String, dynamic> data, String documentId) {
@@ -86,12 +92,8 @@ class EventModel {
       endTime: data['endTime'] ?? '',
       bannerUrl: data['bannerUrl'],
       location: data['location'] ?? '',
-      
-      // --- FIXED LINES ---
       latitude: data['latitude']?.toDouble(), 
-      longitude: data['longitude']?.toDouble(),
-      // -------------------
-      
+      longitude: data['longitude']?.toDouble(),      
       clubId: data['clubId'] ?? '',
       clubName: data['clubName'] ?? '',
       clubImageUrl: data['clubImageUrl'],
@@ -154,6 +156,9 @@ class EventModel {
       'tags': tags,
       'contactEmail': contactEmail,
       'contactPhone': contactPhone,
+      'refundEnabled': refundEnabled,
+      'refundDeadlineDays': refundDeadlineDays,
+      'refundMethodDetails': refundMethodDetails,
     };
   }
 
@@ -357,6 +362,9 @@ class EventModel {
     List<String>? tags,
     String? contactEmail,
     String? contactPhone,
+    bool? refundEnabled,
+    int? refundDeadlineDays,
+    String? refundMethodDetails,
   }) {
     return EventModel(
       id: id ?? this.id,
@@ -389,6 +397,9 @@ class EventModel {
       tags: tags ?? this.tags,
       contactEmail: contactEmail ?? this.contactEmail,
       contactPhone: contactPhone ?? this.contactPhone,
+      refundEnabled: refundEnabled ?? this.refundEnabled,
+      refundDeadlineDays: refundDeadlineDays ?? this.refundDeadlineDays,
+      refundMethodDetails: refundMethodDetails ?? this.refundMethodDetails,
     );
   }
 
@@ -560,4 +571,18 @@ class EventModel {
 
   @override
   int get hashCode => id.hashCode;
+
+  // --- HELPER: CHECK IF EDIT IS ALLOWED ---
+  // Returns TRUE if we are currently BEFORE the 3-day lockout
+  bool get canEdit {
+    // If date isn't set, allow edit
+    final timestamp = int.tryParse(date);
+    if (timestamp == null) return true;
+    
+    final eventDateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
+    // Deadline is 3 days before the event
+    final deadline = eventDateTime.subtract(const Duration(days: 3));
+    
+    return DateTime.now().isBefore(deadline);
+  }
 }

@@ -45,6 +45,22 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   DateTime _selectedDate = DateTime.now();
   TimeOfDay _selectedTime = TimeOfDay.now();
 
+  // --- NEW: Category Logic ---
+  String _selectedCategory = 'General';
+  final List<String> _categories = [
+    'General',
+    'Technology',
+    'Sports',
+    'Music',
+    'Arts', 
+    'Business',
+    'Education', 
+    'Social', 
+    'Workshop', 
+    'Gaming',
+    'Health'
+  ];
+
   // Clean Map Style
   final String _mapStyle = '''
   [
@@ -70,6 +86,11 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     _locationController.text = _localEvent.location;
     _maxAttendeesController.text = _localEvent.maxAttendees.toString();
     
+    // Initialize Category
+    if (_localEvent.category.isNotEmpty && _categories.contains(_localEvent.category)) {
+      _selectedCategory = _localEvent.category;
+    }
+
     if (_localEvent.date != null) {
       final timestamp = int.tryParse(_localEvent.date!);
       if (timestamp != null) {
@@ -121,11 +142,15 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     }
 
     Position position = await Geolocator.getCurrentPosition();
+    
+    if (!mounted) return;
+
     setState(() {
       _currentMapPosition = LatLng(position.latitude, position.longitude);
     });
 
     final GoogleMapController controller = await _mapController.future;
+    if (!mounted) return;
     controller.animateCamera(CameraUpdate.newLatLng(_currentMapPosition));
   }
 
@@ -138,19 +163,28 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
 
     try {
       List<Location> locations = await locationFromAddress(query);
+      
+      if (!mounted) return;
+
       if (locations.isNotEmpty) {
         final loc = locations.first;
         final target = LatLng(loc.latitude, loc.longitude);
         
         final controller = await _mapController.future;
-        controller.animateCamera(CameraUpdate.newLatLngZoom(target, 16));
+        if (mounted) {
+          controller.animateCamera(CameraUpdate.newLatLngZoom(target, 16));
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Location not found")));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Search failed")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Search failed")));
+      }
     } finally {
-      setState(() => _isMapLoading = false);
+      if (mounted) {
+        setState(() => _isMapLoading = false);
+      }
     }
   }
 
@@ -160,6 +194,8 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         _currentMapPosition.latitude, 
         _currentMapPosition.longitude
       );
+
+      if (!mounted) return;
 
       if (placemarks.isNotEmpty) {
         Placemark place = placemarks[0];
@@ -185,13 +221,16 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   void _onCameraIdle() {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 800), () {
-      _resolveAddressFromPin();
+      if (mounted) _resolveAddressFromPin();
     });
   }
 
   Future<void> _pickImage() async {
      try {
       final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+      
+      if (!mounted) return;
+
       if (image != null) {
          setState(() {
           _localEvent = _localEvent.copyWith(bannerUrl: image.path);
@@ -219,6 +258,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         maxAttendees: int.tryParse(_maxAttendeesController.text) ?? 0,
         latitude: _currentMapPosition.latitude,
         longitude: _currentMapPosition.longitude,
+        category: _selectedCategory, // SAVE THE CATEGORY
       );
 
       widget.onNext(_localEvent);
@@ -240,10 +280,23 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundImage: _localEvent.clubImageUrl != null ? NetworkImage(_localEvent.clubImageUrl!) : null,
-                      child: _localEvent.clubImageUrl == null ? const Icon(Icons.group) : null,
+                    FutureBuilder<String?>(
+                      future: StorageService().resolveImageUrl(_localEvent.clubImageUrl),
+                      builder: (context, snapshot) {
+                        ImageProvider? imageProvider;
+                        if (snapshot.hasData && snapshot.data != null) {
+                          imageProvider = NetworkImage(snapshot.data!);
+                        }
+                        
+                        return CircleAvatar(
+                          radius: 24,
+                          backgroundImage: imageProvider,
+                          backgroundColor: Colors.grey[300],
+                          child: imageProvider == null 
+                              ? const Icon(Icons.group, color: Colors.grey) 
+                              : null,
+                        );
+                      },
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -266,16 +319,46 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               onTap: _pickImage,
               child: Container(
                 height: 150,
+                width: double.infinity,
                 decoration: BoxDecoration(
                   color: Colors.grey[200],
                   borderRadius: BorderRadius.circular(12),
-                  image: _localEvent.bannerUrl != null && !_localEvent.bannerUrl!.startsWith('http')
-                    ? DecorationImage(image: FileImage(File(_localEvent.bannerUrl!)), fit: BoxFit.cover)
-                    : null
                 ),
-                child: _localEvent.bannerUrl == null 
-                  ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.add_photo_alternate), Text("Add Banner")]))
-                  : null,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Builder(
+                    builder: (context) {
+                      final rawUrl = _localEvent.bannerUrl;
+                      
+                      if (rawUrl == null || rawUrl.isEmpty || rawUrl == 'file:///') {
+                        return const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [Icon(Icons.add_photo_alternate, size: 40), Text("Add Banner")],
+                          ),
+                        );
+                      }
+
+                      if (rawUrl.startsWith('http')) {
+                        return FutureBuilder<String?>(
+                          future: StorageService().resolveImageUrl(rawUrl),
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState == ConnectionState.waiting) {
+                              return const Center(child: CircularProgressIndicator());
+                            }
+                            return Image.network(
+                              snapshot.data ?? rawUrl, 
+                              fit: BoxFit.cover,
+                              errorBuilder: (_,__,___) => const Center(child: Icon(Icons.broken_image)),
+                            );
+                          },
+                        );
+                      }
+
+                      return Image.file(File(rawUrl), fit: BoxFit.cover);
+                    },
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 20),
@@ -294,6 +377,21 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               decoration: const InputDecoration(labelText: 'Description *', border: OutlineInputBorder()),
               maxLines: 3,
             ),
+            const SizedBox(height: 16),
+
+            // --- NEW: Category Dropdown ---
+            DropdownButtonFormField<String>(
+              value: _selectedCategory,
+              decoration: const InputDecoration(
+                labelText: 'Category',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.category),
+              ),
+              items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+              onChanged: (val) {
+                if (val != null) setState(() => _selectedCategory = val);
+              },
+            ),
             const SizedBox(height: 24),
 
             // --- EMBEDDED MAP SECTION ---
@@ -303,7 +401,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
             TextFormField(
               controller: _locationController,
               decoration: const InputDecoration(
-                labelText: 'Venue Name (e.g. Main Hall, Level 2)',
+                labelText: 'Venue Name',
                 hintText: 'Type venue name or search map',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.location_on),
@@ -416,13 +514,12 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
             
             const SizedBox(height: 20),
 
-            // --- FIXED DATE & TIME SECTION ---
-            // The fix: Wrapped AbsorbPointer with GestureDetector
+            // --- DATE & TIME SECTION ---
             Row(
               children: [
                 Expanded(
                   child: GestureDetector(
-                    onTap: _selectDate, // This was missing!
+                    onTap: _selectDate, 
                     child: AbsorbPointer(
                       child: TextFormField(
                         decoration: const InputDecoration(
@@ -440,7 +537,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: GestureDetector(
-                    onTap: _selectTime, // This was missing!
+                    onTap: _selectTime,
                     child: AbsorbPointer(
                       child: TextFormField(
                         decoration: const InputDecoration(
