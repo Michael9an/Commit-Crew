@@ -39,7 +39,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     _checkRegistrationStatus();
   }
 
-  // Logic to check if the current user is already registered (Kept Original)
+  // Logic to check if the current user is already registered
   Future<void> _checkRegistrationStatus() async {
     try {
       final user = await _authService.getCurrentUser();
@@ -128,7 +128,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Event Image (Kept Original)
+            // Event Image
             AspectRatio(
               aspectRatio: 16 / 9,
               child: _buildEventImage(widget.event.bannerUrl),
@@ -139,7 +139,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Event Name and Favorite Row (Kept Original)
+                  // Event Name and Favorite Row
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -174,7 +174,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
                   SizedBox(height: 16),
 
-                  // Price Section (Kept Original)
+                  // Price Section
                   Container(
                     padding: EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -196,7 +196,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
                   SizedBox(height: 16),
 
-                  // Date and Time (Kept Original)
+                  // Date and Time
                   Row(
                     children: [
                       Icon(Icons.calendar_today, size: 16, color: Colors.grey[600]),
@@ -211,7 +211,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
                   SizedBox(height: 8),
 
-                  // Location (Kept Original)
+                  // Location
                   Row(
                     children: [
                       Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
@@ -222,7 +222,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
                   SizedBox(height: 16),
 
-                  // Register Button (Kept Original)
+                  // Register Button
                   SizedBox(
                     width: double.infinity,
                     child: _isCheckingRegistration
@@ -262,13 +262,13 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
                   SizedBox(height: 24),
 
-                  // About Event Section (Kept Original)
+                  // About Event Section
                   Text('About Event', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   SizedBox(height: 12),
                   Text(widget.event.description, style: TextStyle(color: Colors.grey[600], height: 1.5)),
                   SizedBox(height: 16),
 
-                  // Club Information (Kept Original)
+                  // Club Information
                   Container(
                     padding: EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -293,7 +293,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
                   SizedBox(height: 24),
 
-                  // Event Info Cards (Kept Original)
+                  // Event Info Cards
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
@@ -415,7 +415,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
                   SizedBox(height: 24),
 
-                  // Report Section (Kept Original)
+                  // Report Section
                   Row(
                     children: [
                       Icon(Icons.flag, size: 16, color: Colors.red),
@@ -449,13 +449,12 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
   // --- Helper Widgets ---
 
-  // UPDATED: Review Item with CRASH FIX for empty usernames
   Widget _buildReviewItem(ReviewModel review, User? currentUser) {
     bool isMe = currentUser != null && review.userId == currentUser.uid;
     bool isLiked = currentUser != null && review.likedBy.contains(currentUser.uid);
     int likeCount = review.likedBy.length;
 
-    // --- SAFETY CHECK START: Prevent Crash if Name is Empty ---
+    // Safety checks for display
     String avatarLetter = (review.userName.isNotEmpty) 
         ? review.userName[0].toUpperCase() 
         : '?';
@@ -463,7 +462,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     String displayName = (review.userName.isNotEmpty) 
         ? review.userName 
         : 'Anonymous';
-    // --- SAFETY CHECK END ---
 
     return Container(
       padding: EdgeInsets.symmetric(vertical: 8),
@@ -479,7 +477,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                    CircleAvatar(
                      radius: 16, 
                      backgroundColor: Colors.orange[100],
-                     child: Text(avatarLetter), // USED SAFE LETTER HERE
+                     child: Text(avatarLetter),
                    ),
                    SizedBox(width: 8),
                    Column(
@@ -585,19 +583,31 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                   ),
                 ),
                 SizedBox(width: 20),
-                // REPLY
+                
+                // REPLY (UPDATED)
                 InkWell(
                   onTap: () => showModalBottomSheet(
                     context: context, 
                     isScrollControlled: true,
                     builder: (_) => ReplyBottomSheet(reviewId: review.id!)
                   ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.chat_bubble_outline, color: Colors.grey, size: 20),
-                      SizedBox(width: 4),
-                      Text("Reply", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                    ],
+                  child: StreamBuilder<List<ReplyModel>>(
+                    stream: _reviewService.getReplies(review.id!),
+                    builder: (context, snapshot) {
+                      // Determine label: "Reply" if 0, or "5" if > 0
+                      String label = "Reply";
+                      if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                        label = snapshot.data!.length.toString();
+                      }
+                      
+                      return Row(
+                        children: [
+                          Icon(Icons.chat_bubble_outline, color: Colors.grey, size: 20),
+                          SizedBox(width: 4),
+                          Text(label, style: TextStyle(color: Colors.grey, fontSize: 12)),
+                        ],
+                      );
+                    }
                   ),
                 ),
             ],
@@ -607,7 +617,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     );
   }
 
-  // --- Original Helpers (Untouched) ---
+  // --- Original Helpers ---
 
   Widget _buildEventImage(String? imageUrl) {
     if (imageUrl == null || imageUrl.isEmpty) {
@@ -719,8 +729,9 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
   }
 }
 
-// --- UPDATED REPLY BOTTOM SHEET ---
-// Added the empty username check here too to prevent crashes inside the reply list
+// ==========================================
+// IMPROVED REPLY BOTTOM SHEET
+// ==========================================
 class ReplyBottomSheet extends StatefulWidget {
   final String reviewId;
   const ReplyBottomSheet({super.key, required this.reviewId});
@@ -731,93 +742,253 @@ class ReplyBottomSheet extends StatefulWidget {
 
 class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
   final TextEditingController _ctrl = TextEditingController();
+  final FocusNode _focusNode = FocusNode(); // Added for auto-focus
   final ReviewService _service = ReviewService();
   final String _myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+  
+  String? _replyingToUser; // Track who we are replying to
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
 
   void _send() {
     if (_ctrl.text.trim().isEmpty) return;
+    
+    // The service handles the database logic
     _service.addReply(widget.reviewId, _ctrl.text.trim());
+    
     _ctrl.clear();
+    setState(() {
+      _replyingToUser = null;
+    });
     FocusScope.of(context).unfocus();
   }
 
   void _delete(String replyId) => _service.deleteReply(widget.reviewId, replyId);
 
+  // Triggered when user clicks "Reply" on someone's comment
+  void _startReplyToUser(String userName) {
+    setState(() {
+      _replyingToUser = userName;
+    });
+    
+    // Pre-fill text with mention
+    String mention = "@$userName ";
+    _ctrl.text = mention;
+    
+    // Move cursor to end
+    _ctrl.selection = TextSelection.fromPosition(TextPosition(offset: _ctrl.text.length));
+    
+    // Open keyboard
+    FocusScope.of(context).requestFocus(_focusNode);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.7,
+    // Calculate height to avoid keyboard covering input
+    return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: Column(
-        children: [
-          Container(
-            padding: EdgeInsets.all(16),
-            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey[300]!))),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [Text("Replies", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))],
-            ),
-          ),
-          Expanded(
-            child: StreamBuilder<List<ReplyModel>>(
-              stream: _service.getReplies(widget.reviewId),
-              builder: (context, snap) {
-                if (!snap.hasData) return Center(child: CircularProgressIndicator());
-                final replies = snap.data!;
-                if (replies.isEmpty) return Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No replies yet. Be the first!")));
-                
-                return ListView.builder(
-                  itemCount: replies.length,
-                  itemBuilder: (_, i) {
-                    final r = replies[i];
-                    
-                    // --- SAFETY CHECK FOR REPLY AVATAR ---
-                    String replyAvatar = (r.userName.isNotEmpty) 
-                        ? r.userName[0].toUpperCase() 
-                        : '?';
-                    String replyName = r.userName.isNotEmpty ? r.userName : 'Anonymous';
-                    
-                    return ListTile(
-                      leading: CircleAvatar(
-                        radius: 14, 
-                        child: Text(replyAvatar, style: TextStyle(fontSize: 12))
-                      ),
-                      title: Text(replyName, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                      subtitle: Text(r.content),
-                      trailing: r.userId == _myUid 
-                        ? IconButton(icon: Icon(Icons.delete_outline, size: 18, color: Colors.grey), onPressed: () => _delete(r.id))
-                        : null,
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-          Container(
-            padding: EdgeInsets.all(10),
-            decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0,-2))]),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _ctrl,
-                    decoration: InputDecoration(
-                      hintText: "Add a reply...",
-                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(30)),
-                      filled: true, fillColor: Colors.grey[100]
-                    ),
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.75, // Slightly taller
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // --- Header ---
+            Container(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+              ),
+              child: Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300], 
+                    borderRadius: BorderRadius.circular(2)
                   ),
                 ),
-                SizedBox(width: 8),
-                CircleAvatar(
-                  backgroundColor: Colors.blue,
-                  child: IconButton(icon: Icon(Icons.send, size: 18, color: Colors.white), onPressed: _send),
-                )
-              ],
+              ),
             ),
-          )
-        ],
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12.0),
+              child: Text("Replies", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ),
+
+            // --- List of Replies ---
+            Expanded(
+              child: StreamBuilder<List<ReplyModel>>(
+                stream: _service.getReplies(widget.reviewId),
+                builder: (context, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return Center(child: CircularProgressIndicator());
+                  }
+                  
+                  final replies = snap.data ?? [];
+                  
+                  if (replies.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.chat_bubble_outline, size: 48, color: Colors.grey[300]),
+                          SizedBox(height: 12),
+                          Text("No replies yet.", style: TextStyle(color: Colors.grey)),
+                          Text("Start the conversation!", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return ListView.builder(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    itemCount: replies.length,
+                    itemBuilder: (_, i) {
+                      final r = replies[i];
+                      bool isMe = r.userId == _myUid;
+
+                      // Safety Check for Name/Avatar
+                      String replyName = r.userName.isNotEmpty ? r.userName : 'Anonymous';
+                      String replyAvatar = replyName.isNotEmpty ? replyName[0].toUpperCase() : '?';
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 16.0),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Avatar
+                            CircleAvatar(
+                              radius: 16,
+                              backgroundColor: Colors.blue[50],
+                              child: Text(replyAvatar, style: TextStyle(fontSize: 14, color: Colors.blue, fontWeight: FontWeight.bold)),
+                            ),
+                            SizedBox(width: 12),
+                            
+                            // Content Column
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(replyName, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey[800])),
+                                      if (isMe) 
+                                        Text(" (You)", style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                    ],
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    r.content, 
+                                    style: TextStyle(fontSize: 14, color: Colors.black87),
+                                  ),
+                                  SizedBox(height: 6),
+                                  
+                                  // Interaction Row (Reply button)
+                                  Row(
+                                    children: [
+                                      GestureDetector(
+                                        onTap: () => _startReplyToUser(replyName),
+                                        child: Text("Reply", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600])),
+                                      ),
+                                      if (isMe) ...[
+                                        SizedBox(width: 16),
+                                        GestureDetector(
+                                          onTap: () => _delete(r.id),
+                                          child: Text("Delete", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.red[300])),
+                                        ),
+                                      ]
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+
+            // --- Input Area ---
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: Offset(0, -5))
+                ],
+              ),
+              padding: EdgeInsets.only(left: 16, right: 16, bottom: 16, top: 12),
+              child: Column(
+                children: [
+                  // Banner showing who we are replying to
+                  if (_replyingToUser != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Row(
+                        children: [
+                          Text("Replying to ", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                          Text("@$_replyingToUser", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                          Spacer(),
+                          GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _replyingToUser = null;
+                                _ctrl.clear();
+                              });
+                            },
+                            child: Icon(Icons.close, size: 16, color: Colors.grey),
+                          )
+                        ],
+                      ),
+                    ),
+                  
+                  // Text Field
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          child: TextField(
+                            controller: _ctrl,
+                            focusNode: _focusNode,
+                            decoration: InputDecoration(
+                              hintText: _replyingToUser != null ? "Reply to $_replyingToUser..." : "Add a reply...",
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              isDense: true,
+                            ),
+                            maxLines: null, // Allow expanding
+                            textCapitalization: TextCapitalization.sentences,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      GestureDetector(
+                        onTap: _send,
+                        child: CircleAvatar(
+                          radius: 20,
+                          backgroundColor: Colors.red,
+                          child: Icon(Icons.arrow_upward, color: Colors.white, size: 20),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
