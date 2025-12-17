@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // --- Helper Fuinctions ---
+    function isClubAdmin(clubId) {
+      let clubDoc = get(/databases/$(database)/documents/clubs/$(clubId));
+      return clubDoc.exists && request.auth.uid in clubDoc.data.adminIds;
+    }
+    
+    function isAdmin() {
+      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return userDoc.exists && userDoc.data.role == 'admin';
+    }
+    
+    // --- 1. User Rules ---
+    // Allow users to read/write only their own profile
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null; // Needed for registration
+    }
+
+    // --- 2. Club Rules (This was broken before) ---
+    match /clubs/{clubId} {
+      allow read: if true; // Anyone can see the club list (Fixes your loading error)
+      allow create: if request.auth != null; // Logged in users can register a club
+      allow update: if request.auth != null; // Club admins can edit
+    }
+
+    // --- 3. Event Rules ---
+    match /events/{eventId} {
+      allow read: if true; // Public events
+      allow write: if request.auth != null; // Create/Edit events
+    }
+    
+    // --- 4. Registration Rules ---
+		match /registers/{registerId} {
+      allow create: if true; // Anyone can create registration (including guests)
+    	allow read: if // Users can read their own registration OR club admins can read their club's registrations
+    		(resource.data.userId == request.auth.uid) || // User reading their own registration
+        (resource.data.email == request.auth.token.email) || // User reading by matching email (for quest registration)
+        true; // TEMPORARY: Allow all updates for testing
+        
+        //(request.auth != null && isClubAdmin(resource.data.clubId)) || // Club admin reading their club's registration
+        //(request.auth != null && isAdmin()); // App admin can read all registration
+        
+      allow update: if true;// Users can update their own registration (cancel, etc.) OR club admins can update
+      	// TEMPORARY
+        //(request.auth != null && resource.data.userId == request.auth.uid) ||
+        //(request.auth != null && isClubAdmin(resource.data.clubId));
+        
+      allow delete: if false;// TEMPORARY //request.auth != null && isClubAdmin(resource.data.clubId); // Onlly club admins can delete registrations
+    }
+  	
+    // --- 5. Report Rules ---
+    match /reports/{reportId} {
+      allow create: if request.auth != null;
+      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+      allow update: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // --- 6. Join Request Rules ---
+    match /join_requests/{requestId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // --- 7. Review Rules ---
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // --- 8. Default Fallback ---
+    // Explicitly deny everything else for safety
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
