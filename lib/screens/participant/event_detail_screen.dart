@@ -1,15 +1,27 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // From File 2
 import 'dart:io';
+import 'dart:async'; // Required for Completer (File 1)
+
+// --- MODELS ---
 import '../../models/event.dart';
-import '../../models/review.dart'; 
+import '../../models/review.dart'; // From File 2
+
+// --- SERVICES ---
 import '../../services/storage_service.dart';
-import '../../services/registration_service.dart'; 
-import '../../services/auth_service.dart'; 
-import '../../services/review_service.dart'; 
+import '../../services/registration_service.dart';
+import '../../services/auth_service.dart';
+import '../../services/review_service.dart'; // From File 2
+
+// --- SCREENS ---
 import 'report_screen.dart';
 import 'event_registration_screen.dart';
-import 'event_review_screen.dart'; 
+import 'event_review_screen.dart'; // From File 2
+
+// --- MAP IMPORTS (From File 1) ---
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ParticipantEventDetailScreen extends StatefulWidget {
   final EventModel event;
@@ -24,22 +36,113 @@ class ParticipantEventDetailScreen extends StatefulWidget {
 }
 
 class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScreen> {
-  // Services
+  // --- SERVICES ---
   final RegistrationService _registrationService = RegistrationService();
   final AuthService _authService = AuthService();
-  final ReviewService _reviewService = ReviewService(); 
+  final ReviewService _reviewService = ReviewService(); // From File 2
 
-  // State variables for Registration
+  // --- STATE VARIABLES ---
   bool _isRegistered = false;
   bool _isCheckingRegistration = true;
+
+  // --- MAP STATE VARIABLES (From File 1) ---
+  LatLng? _eventLatLng;
+  Set<Marker> _markers = {};
+  bool _isMapLoading = true;
+  final Completer<GoogleMapController> _mapController = Completer();
+
+  // Simple map style to hide clutter
+  final String _mapStyle = '''
+  [
+    {
+      "featureType": "poi",
+      "elementType": "labels.icon",
+      "stylers": [{"visibility": "off"}]
+    }
+  ]
+  ''';
 
   @override
   void initState() {
     super.initState();
     _checkRegistrationStatus();
+    _loadEventLocation(); // Initialize map location logic
   }
 
-  // Logic to check if the current user is already registered
+  // =========================================================
+  // MAP LOGIC (From File 1)
+  // =========================================================
+  void _loadEventLocation() {
+    // 1. Check if we have exact GPS coordinates saved
+    if (widget.event.latitude != null && widget.event.longitude != null) {
+      final position = LatLng(widget.event.latitude!, widget.event.longitude!);
+      
+      if (mounted) {
+        setState(() {
+          _eventLatLng = position;
+          _markers.add(
+            Marker(
+              markerId: MarkerId('event_location'),
+              position: position,
+              infoWindow: InfoWindow(title: widget.event.location),
+            ),
+          );
+          _isMapLoading = false;
+        });
+      }
+    } 
+    // 2. Fallback: Try to find address by text if no GPS provided
+    else if (widget.event.location.isNotEmpty) {
+      _resolveAddressFallback();
+    } else {
+      if (mounted) setState(() => _isMapLoading = false);
+    }
+  }
+
+  Future<void> _resolveAddressFallback() async {
+    try {
+      List<Location> locations = await locationFromAddress(widget.event.location);
+      if (locations.isNotEmpty) {
+        final loc = locations.first;
+        final position = LatLng(loc.latitude, loc.longitude);
+        if (mounted) {
+          setState(() {
+            _eventLatLng = position;
+            _markers.add(Marker(markerId: MarkerId('event'), position: position));
+            _isMapLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isMapLoading = false);
+    }
+  }
+
+  Future<void> _launchMapsApp() async {
+    if (_eventLatLng == null) return;
+    
+    final double lat = _eventLatLng!.latitude;
+    final double lng = _eventLatLng!.longitude;
+    
+    final Uri googleMapsUrl = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng");
+    final Uri appleMapsUrl = Uri.parse("https://maps.apple.com/?q=$lat,$lng");
+
+    if (await canLaunchUrl(googleMapsUrl)) {
+      await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication);
+    } else if (await canLaunchUrl(appleMapsUrl)) {
+      await launchUrl(appleMapsUrl, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Could not open maps application.")),
+        );
+      }
+    }
+  }
+
+  // =========================================================
+  // REGISTRATION LOGIC
+  // =========================================================
   Future<void> _checkRegistrationStatus() async {
     try {
       final user = await _authService.getCurrentUser();
@@ -76,8 +179,9 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     }
   }
 
-  // --- ACTIONS FOR REVIEWS ---
-  
+  // =========================================================
+  // REVIEW ACTIONS (From File 2)
+  // =========================================================
   void _deleteReview(String reviewId) async {
     try {
       await _reviewService.deleteReview(reviewId);
@@ -108,6 +212,70 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
           )).toList(),
         );
       },
+    );
+  }
+
+  // =========================================================
+  // WIDGET BUILDER
+  // =========================================================
+  
+  // Map Widget Helper (From File 1)
+  Widget _buildMapSection() {
+    if (widget.event.location.isEmpty) return SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text("Location Map", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            if (_eventLatLng != null)
+              TextButton.icon(
+                onPressed: _launchMapsApp,
+                icon: Icon(Icons.directions, size: 18),
+                label: Text("Get Directions"),
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero, 
+                  visualDensity: VisualDensity.compact
+                ),
+              ),
+          ],
+        ),
+        SizedBox(height: 8),
+        Container(
+          height: 180, 
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[300]!),
+            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: _isMapLoading
+              ? Center(child: CircularProgressIndicator())
+              : _eventLatLng == null
+                ? Center(child: Text("Could not load map for this address.", style: TextStyle(color: Colors.grey)))
+                : GoogleMap(
+                    mapType: MapType.normal,
+                    initialCameraPosition: CameraPosition(
+                      target: _eventLatLng!,
+                      zoom: 15,
+                    ),
+                    markers: _markers,
+                    zoomControlsEnabled: false,
+                    scrollGesturesEnabled: false, 
+                    zoomGesturesEnabled: true,
+                    onMapCreated: (GoogleMapController controller) {
+                      _mapController.complete(controller);
+                      controller.setMapStyle(_mapStyle);
+                    },
+                  ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -150,22 +318,33 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                           children: [
                             Text(
                               widget.event.name,
-                              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             SizedBox(height: 4),
                             Text(
                               'by ${widget.event.clubName}',
-                              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[600],
+                              ),
                             ),
                           ],
                         ),
                       ),
                       Container(
-                        decoration: BoxDecoration(color: Colors.grey[200], shape: BoxShape.circle),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          shape: BoxShape.circle,
+                        ),
                         child: IconButton(
                           icon: Icon(Icons.favorite_border, color: Colors.red),
                           onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added to favorites!')));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Added to favorites!')),
+                            );
                           },
                         ),
                       ),
@@ -180,15 +359,30 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                     decoration: BoxDecoration(
                       color: widget.event.isFree ? Colors.green[50] : Colors.blue[50],
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: widget.event.isFree ? Colors.green : Colors.blue),
+                      border: Border.all(
+                        color: widget.event.isFree ? Colors.green : Colors.blue,
+                      ),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Price', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey[600])),
                         Text(
-                          widget.event.isFree ? 'FREE' : '\$${widget.event.price.toStringAsFixed(2)}',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: widget.event.isFree ? Colors.green : Colors.blue),
+                          'Price',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        Text(
+                          widget.event.isFree
+                              ? 'FREE'
+                              : '\$${widget.event.price.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: widget.event.isFree ? Colors.green : Colors.blue,
+                          ),
                         ),
                       ],
                     ),
@@ -199,49 +393,85 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                   // Date and Time
                   Row(
                     children: [
-                      Icon(Icons.calendar_today, size: 16, color: Colors.grey[600]),
+                      Icon(Icons.calendar_today,
+                          size: 16, color: Colors.grey[600]),
                       SizedBox(width: 8),
-                      Text(widget.event.formattedDate, style: TextStyle(color: Colors.grey[600])),
+                      Text(
+                        widget.event.formattedDate,
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
                       SizedBox(width: 16),
                       Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
                       SizedBox(width: 8),
-                      Text(widget.event.formattedTime, style: TextStyle(color: Colors.grey[600])),
+                      Text(
+                        widget.event.formattedTime,
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
                     ],
                   ),
 
                   SizedBox(height: 8),
 
-                  // Location
+                  // Location Text
                   Row(
                     children: [
-                      Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
+                      Icon(Icons.location_on,
+                          size: 16, color: Colors.grey[600]),
                       SizedBox(width: 8),
-                      Expanded(child: Text(widget.event.location, style: TextStyle(color: Colors.grey[600]))),
+                      Expanded(
+                        child: Text(
+                          widget.event.location,
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ),
                     ],
                   ),
 
-                  SizedBox(height: 16),
+                  // --- MAP SECTION (From File 1) ---
+                  _buildMapSection(),
+                  // ---------------------------------
+
+                  SizedBox(height: 24),
 
                   // Register Button
                   SizedBox(
                     width: double.infinity,
-                    child: _isCheckingRegistration
+                     child: _isCheckingRegistration
                         ? Container(
                             padding: EdgeInsets.symmetric(vertical: 14),
-                            decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(8)),
-                            child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[300],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          child: Center(
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                              ),
                           )
                         : ElevatedButton(
-                            onPressed: _isRegistered ? null : () {
+                            onPressed: _isRegistered
+                                ? null
+                                : () {
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (context) => EventRegistrationScreen(event: widget.event, ticketQuantity: 1),
+                                        builder: (context) => EventRegistrationScreen(
+                                          event: widget.event,
+                                          ticketQuantity: 1,
+                                        ),
                                       ),
                                     ).then((success) {
                                       if (success == true) {
                                         ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('Successfully registered for ${widget.event.name}!'), backgroundColor: Colors.green),
+                                          SnackBar(
+                                            content: Text('Successfully registered for ${widget.event.name}!'),
+                                            backgroundColor: Colors.green,
+                                          ),
                                         );
                                         _checkRegistrationStatus();
                                       }
@@ -254,8 +484,14 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                             child: Text(
                               _isRegistered
                                   ? 'Already Registered'
-                                  : widget.event.isFree ? 'Register for Event' : 'Register Now - RM${widget.event.price.toStringAsFixed(2)}',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                  : widget.event.isFree
+                                      ? 'Register for Event'
+                                      : 'Register Now - RM${widget.event.price.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                   ),
@@ -263,11 +499,26 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                   SizedBox(height: 24),
 
                   // About Event Section
-                  Text('About Event', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  SizedBox(height: 12),
-                  Text(widget.event.description, style: TextStyle(color: Colors.grey[600], height: 1.5)),
-                  SizedBox(height: 16),
+                  Text(
+                    'About Event',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
 
+                  SizedBox(height: 12),
+
+                  Text(
+                    widget.event.description,
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      height: 1.5,
+                    ),
+                  ),
+
+                  SizedBox(height: 16),
+                  
                   // Club Information
                   Container(
                     padding: EdgeInsets.all(12),
@@ -283,8 +534,20 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Organized by', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                            Text(widget.event.clubName, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                            Text(
+                              'Organized by',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Text(
+                              widget.event.clubName,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -315,7 +578,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                   SizedBox(height: 24),
 
                   // ===============================================
-                  // REVIEWS SECTION
+                  // REVIEWS SECTION (From File 2)
                   // ===============================================
                   Text('Reviews', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red)),
                   SizedBox(height: 12),
@@ -420,23 +683,47 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                     children: [
                       Icon(Icons.flag, size: 16, color: Colors.red),
                       SizedBox(width: 8),
-                      Text('Report', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red)),
+                      Text(
+                        'Report',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red,
+                        ),
+                      ),
                     ],
                   ),
+
                   SizedBox(height: 12),
+
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => ParticipantReportEventScreen(event: widget.event))),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                ParticipantReportEventScreen(event: widget.event),
+                          ),
+                        );
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.red[50],
                         foregroundColor: Colors.red,
                         side: BorderSide(color: Colors.red),
                         padding: EdgeInsets.symmetric(vertical: 12),
                       ),
-                      child: Text('Report Event', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      child: Text(
+                        'Report Event',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
+
                   SizedBox(height: 24),
                 ],
               ),
@@ -617,8 +904,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     );
   }
 
-  // --- Original Helpers ---
-
   Widget _buildEventImage(String? imageUrl) {
     if (imageUrl == null || imageUrl.isEmpty) {
       return Container(
@@ -628,11 +913,16 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
           children: const [
             Icon(Icons.event, size: 40, color: Colors.grey),
             SizedBox(height: 8),
-            Text('No image', style: TextStyle(color: Colors.grey)),
+            Text(
+              'No image',
+              style: TextStyle(color: Colors.grey),
+            ),
           ],
         ),
       );
     }
+
+    // If the URL is a local file path
     if (imageUrl.startsWith('/')) {
       return Image.file(
         File(imageUrl),
@@ -642,24 +932,34 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
         },
       );
     }
+
+    // For network or storage images
     final storageService = StorageService();
     return FutureBuilder<String?>(
       future: storageService.resolveImageUrl(imageUrl),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return Container(color: Colors.grey[200], child: Center(child: CircularProgressIndicator()));
+          return Container(
+            color: Colors.grey[200],
+            child: Center(child: CircularProgressIndicator()),
+          );
         }
+
         final resolved = snap.data;
         if (resolved == null || resolved.isEmpty) {
           return _buildErrorImage();
         }
+
         if (resolved.startsWith('/')) {
           return Image.file(
             File(resolved),
             fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => _buildErrorImage(),
+            errorBuilder: (context, error, stackTrace) {
+              return _buildErrorImage();
+            },
           );
         }
+
         return Image.network(
           resolved,
           fit: BoxFit.cover,
@@ -670,13 +970,16 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
               child: Center(
                 child: CircularProgressIndicator(
                   value: loadingProgress.expectedTotalBytes != null
-                      ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                      ? loadingProgress.cumulativeBytesLoaded /
+                          loadingProgress.expectedTotalBytes!
                       : null,
                 ),
               ),
             );
           },
-          errorBuilder: (context, error, stackTrace) => _buildErrorImage(),
+          errorBuilder: (context, error, stackTrace) {
+            return _buildErrorImage();
+          },
         );
       },
     );
@@ -690,7 +993,10 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
         children: const [
           Icon(Icons.broken_image, size: 40, color: Colors.grey),
           SizedBox(height: 8),
-          Text('Image not available', style: TextStyle(color: Colors.grey)),
+          Text(
+            'Image not available',
+            style: TextStyle(color: Colors.grey),
+          ),
         ],
       ),
     );
@@ -714,11 +1020,21 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
           children: [
             Icon(icon, size: 32, color: color),
             SizedBox(height: 8),
-            Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+            ),
             SizedBox(height: 4),
             Text(
               value,
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -730,7 +1046,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 }
 
 // ==========================================
-// IMPROVED REPLY BOTTOM SHEET
+// IMPROVED REPLY BOTTOM SHEET (From File 2)
 // ==========================================
 class ReplyBottomSheet extends StatefulWidget {
   final String reviewId;
