@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import '../../models/event.dart';
 import '../../services/report_service.dart';
-import '../../services/storage_service.dart';
 import 'package:image_picker/image_picker.dart';
 
 class ParticipantReportEventScreen extends StatefulWidget {
@@ -19,7 +18,6 @@ class ParticipantReportEventScreen extends StatefulWidget {
 
 class _ParticipantReportEventScreenState extends State<ParticipantReportEventScreen> {
   final ReportService _reportService = ReportService();
-  final StorageService _storageService = StorageService();
   final ImagePicker _imagePicker = ImagePicker();
 
   String? selectedReason;
@@ -80,15 +78,6 @@ class _ParticipantReportEventScreenState extends State<ParticipantReportEventScr
     setState(() => _isSubmitting = true);
 
     try {
-      String? imageUrl;
-      if (screenshotPath != null) {
-        // Generate a temporary ID for the report image or use a timestamp
-        // Ideally, we should get the report ID first, but submitReport generates it.
-        // Let's use a timestamp-based ID for the image for now.
-        final tempId = DateTime.now().millisecondsSinceEpoch.toString();
-        imageUrl = await _storageService.uploadReportImage(File(screenshotPath!), tempId);
-      }
-
       await _reportService.submitReport(
         eventId: widget.event.id,
         eventName: widget.event.name,
@@ -96,7 +85,6 @@ class _ParticipantReportEventScreenState extends State<ParticipantReportEventScr
         details: _detailsController.text.isNotEmpty
             ? _detailsController.text
             : null,
-        imageUrl: imageUrl,
       );
 
       if (mounted) {

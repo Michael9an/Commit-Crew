@@ -9,8 +9,6 @@ class EventModel {
   final String endTime;
   final String? bannerUrl;
   final String location;
-  final double? latitude;
-  final double? longitude;
   final String clubId;
   final String clubName;
   final String? clubImageUrl;
@@ -22,7 +20,6 @@ class EventModel {
   final DateTime? createdAt;
   final String status;
   final List<String> attendees;
-  final List<String> attendeesEmail;
   final List<String> waitlist;
   final int views;
   final int shares;
@@ -42,8 +39,6 @@ class EventModel {
     required this.endTime,
     this.bannerUrl,
     required this.location,
-    this.latitude,
-    this.longitude,
     required this.clubId,
     required this.clubName,
     this.clubImageUrl,
@@ -55,7 +50,6 @@ class EventModel {
     this.createdAt,
     this.status = 'upcoming',
     this.attendees = const [],
-    this.attendeesEmail = const [],
     this.waitlist = const [],
     this.views = 0,
     this.shares = 0,
@@ -90,8 +84,6 @@ class EventModel {
     endTime: data['endTime'] ?? '',
     bannerUrl: data['bannerUrl'],
     location: data['location'] ?? '',
-    latitude: data['latitude']?.toDouble(),
-    longitude: data['longitude']?.toDouble(),
     clubId: data['clubId'] ?? '',
     clubName: data['clubName'] ?? '',
     clubImageUrl: data['clubImageUrl'],
@@ -103,7 +95,6 @@ class EventModel {
     createdAt: _convertToDateTime(data['createdAt']),
     status: data['status'] ?? 'upcoming',
     attendees: List<String>.from(data['attendees'] ?? []),
-    attendeesEmail: List<String>.from(data['attendeesEmail'] ?? []),
     waitlist: List<String>.from(data['waitlist'] ?? []),
     views: data['views'] ?? 0,
     shares: data['shares'] ?? 0,
@@ -131,8 +122,6 @@ class EventModel {
       'endTime': endTime,
       'bannerUrl': bannerUrl,
       'location': location,
-      'latitude': latitude,
-      'longitude': longitude,
       'clubId': clubId,
       'clubName': clubName,
       'clubImageUrl': clubImageUrl,
@@ -144,7 +133,6 @@ class EventModel {
       'createdAt': _convertToTimestamp(createdAt),
       'status': status,
       'attendees': attendees,
-      'attendeesEmail': attendeesEmail,
       'waitlist': waitlist,
       'views': views,
       'shares': shares,
@@ -173,8 +161,6 @@ class EventModel {
       endTime: json['endTime'] ?? '',
       bannerUrl: json['bannerUrl'],
       location: json['location'],
-      latitude: json['latitude']?.toDouble(),
-      longitude: json['longitude']?.toDouble(),
       clubId: json['clubId'],
       clubName: json['clubName'],
       clubImageUrl: json['clubImageUrl'],
@@ -186,7 +172,6 @@ class EventModel {
       createdAt: _parseDateTime(json['createdAt']),
       status: json['status'] ?? 'upcoming',
       attendees: List<String>.from(json['attendees'] ?? []),
-      attendeesEmail: List<String>.from(json['attendeesEmail'] ?? []),
       waitlist: List<String>.from(json['waitlist'] ?? []),
       views: json['views'] ?? 0,
       shares: json['shares'] ?? 0,
@@ -209,8 +194,6 @@ class EventModel {
       'endTime': endTime,
       'bannerUrl': bannerUrl,
       'location': location,
-      'latitude': latitude,
-      'longitude': longitude,
       'clubId': clubId,
       'clubName': clubName,
       'clubImageUrl': clubImageUrl,
@@ -222,7 +205,6 @@ class EventModel {
       'createdAt': createdAt?.toIso8601String(),
       'status': status,
       'attendees': attendees,
-      'attendeesEmail': attendeesEmail,
       'waitlist': waitlist,
       'views': views,
       'shares': shares,
@@ -305,7 +287,7 @@ class EventModel {
 
   String get priceDisplay {
     if (isFree) return 'Free';
-    return 'RM${price.toStringAsFixed(2)}';
+    return '\$${price.toStringAsFixed(2)}';
   }
 
   String get capacityDisplay {
@@ -335,8 +317,6 @@ class EventModel {
     String? endTime,
     String? bannerUrl,
     String? location,
-    double? latitude,
-    double? longitude,
     String? clubId,
     String? clubName,
     String? clubImageUrl,
@@ -348,7 +328,6 @@ class EventModel {
     DateTime? createdAt,
     String? status,
     List<String>? attendees,
-    List<String>? attendeesEmail,
     List<String>? waitlist,
     int? views,
     int? shares,
@@ -368,8 +347,6 @@ class EventModel {
       endTime: endTime ?? this.endTime,
       bannerUrl: bannerUrl ?? this.bannerUrl,
       location: location ?? this.location,
-      latitude: latitude ?? this.latitude,
-      longitude: longitude ?? this.longitude,
       clubId: clubId ?? this.clubId,
       clubName: clubName ?? this.clubName,
       clubImageUrl: clubImageUrl ?? this.clubImageUrl,
@@ -381,7 +358,6 @@ class EventModel {
       createdAt: createdAt ?? this.createdAt,
       status: status ?? this.status,
       attendees: attendees ?? this.attendees,
-      attendeesEmail: attendeesEmail ?? this.attendeesEmail,
       waitlist: waitlist ?? this.waitlist,
       views: views ?? this.views,
       shares: shares ?? this.shares,

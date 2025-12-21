@@ -26,11 +26,6 @@ class StorageService {
     return _uploadToGoogleDrive(userId, imageFile, extension, "profile_picture");
   }
 
-  Future<String?> uploadReportImage(File imageFile, String reportId) async {
-    String extension = imageFile.path.split('.').last;
-    return _uploadToGoogleDrive(reportId, imageFile, extension, "report_image");
-  }
-
   Future<String?> resolveImageUrl(String? url) async {
     if (url == null || url.isEmpty) return null;
     if (!url.startsWith('http')) return url;
