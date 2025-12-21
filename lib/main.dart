@@ -15,7 +15,7 @@ import 'utils/theme.dart';
 void main() async {
   // Ensure Flutter bindings are initialized
   WidgetsFlutterBinding.ensureInitialized();
-
+  
   // Install global Flutter error handler so uncaught framework errors are logged
   FlutterError.onError = (FlutterErrorDetails details) {
     // Print to console and also forward to default handler which logs in debug

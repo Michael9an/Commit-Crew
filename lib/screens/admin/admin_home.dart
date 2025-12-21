@@ -26,7 +26,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   final List<BottomNavigationBarItem> _adminNavItems = [
     BottomNavigationBarItem(
       icon: Icon(Icons.dashboard),
-      label: 'Analytics',
+      label: 'Overview',
     ),
     BottomNavigationBarItem(
       icon: Icon(Icons.people),

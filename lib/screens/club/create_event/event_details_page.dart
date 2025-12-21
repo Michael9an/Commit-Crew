@@ -25,6 +25,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   final _maxAttendeesController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
   late EventModel _localEvent;
+  Future<String?>? _bannerImageFuture;
 
   DateTime _selectedDate = DateTime.now();
   TimeOfDay _selectedTime = TimeOfDay.now();
@@ -38,9 +39,14 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     _locationController.text = _localEvent.location;
     _maxAttendeesController.text = _localEvent.maxAttendees.toString();
     
+    // Initialize banner future if it's a network URL
+    if (_localEvent.bannerUrl != null && _localEvent.bannerUrl!.startsWith('http')) {
+      _bannerImageFuture = StorageService().resolveImageUrl(_localEvent.bannerUrl);
+    }
+    
     // Set initial date/time from event data if exists
-    if (_localEvent.date != null) {
-      final timestamp = int.tryParse(_localEvent.date!);
+    if (_localEvent.date.isNotEmpty) {
+      final timestamp = int.tryParse(_localEvent.date);
       if (timestamp != null) {
         final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
         _selectedDate = dateTime;
@@ -252,7 +258,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                     // 2. Network Image (With FutureBuilder)
                     if (rawUrl.startsWith('http')) {
                       return FutureBuilder<String?>(
-                        future: StorageService().resolveImageUrl(rawUrl),
+                        future: _bannerImageFuture,
                         builder: (context, snapshot) {
                           if (snapshot.connectionState == ConnectionState.waiting) {
                             return Center(child: CircularProgressIndicator());

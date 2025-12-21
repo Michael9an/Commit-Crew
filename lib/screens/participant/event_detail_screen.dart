@@ -1,19 +1,31 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../models/event.dart';
 import 'dart:io';
 import '../../services/storage_service.dart';
 import 'report_screen.dart';
 
-class ParticipantEventDetailScreen extends StatelessWidget {
+class ParticipantEventDetailScreen extends StatefulWidget {
   final EventModel event;
 
   const ParticipantEventDetailScreen({
     super.key,
     required this.event,
   });
+
+  @override
+  State<ParticipantEventDetailScreen> createState() => _ParticipantEventDetailScreenState();
+}
+
+class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScreen> {
+  Future<String?>? _bannerImageFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.event.bannerUrl != null && widget.event.bannerUrl!.isNotEmpty) {
+      _bannerImageFuture = StorageService().resolveImageUrl(widget.event.bannerUrl);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +44,7 @@ class ParticipantEventDetailScreen extends StatelessWidget {
             // Event Image
             AspectRatio(
               aspectRatio: 16 / 9,
-              child: _buildEventImage(event.bannerUrl),
+              child: _buildEventImage(widget.event.bannerUrl),
             ),
 
             Padding(
@@ -50,7 +62,7 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              event.name,
+                              widget.event.name,
                               style: TextStyle(
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
@@ -58,7 +70,7 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                             ),
                             SizedBox(height: 4),
                             Text(
-                              'by ${event.clubName}',
+                              'by ${widget.event.clubName}',
                               style: TextStyle(
                                 fontSize: 14,
                                 color: Colors.grey[600],
@@ -91,10 +103,10 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                   Container(
                     padding: EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: event.isFree ? Colors.green[50] : Colors.blue[50],
+                      color: widget.event.isFree ? Colors.green[50] : Colors.blue[50],
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color: event.isFree ? Colors.green : Colors.blue,
+                        color: widget.event.isFree ? Colors.green : Colors.blue,
                       ),
                     ),
                     child: Row(
@@ -109,13 +121,13 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          event.isFree
+                          widget.event.isFree
                               ? 'FREE'
-                              : '\$${event.price.toStringAsFixed(2)}',
+                              : 'RM${widget.event.price.toStringAsFixed(2)}',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: event.isFree ? Colors.green : Colors.blue,
+                            color: widget.event.isFree ? Colors.green : Colors.blue,
                           ),
                         ),
                       ],
@@ -131,14 +143,14 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                           size: 16, color: Colors.grey[600]),
                       SizedBox(width: 8),
                       Text(
-                        event.formattedDate,
+                        widget.event.formattedDate,
                         style: TextStyle(color: Colors.grey[600]),
                       ),
                       SizedBox(width: 16),
                       Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
                       SizedBox(width: 8),
                       Text(
-                        event.formattedTime,
+                        widget.event.formattedTime,
                         style: TextStyle(color: Colors.grey[600]),
                       ),
                     ],
@@ -154,54 +166,12 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          event.location,
+                          widget.event.location,
                           style: TextStyle(color: Colors.grey[600]),
                         ),
                       ),
                     ],
                   ),
-
-                  if (event.latitude != null && event.longitude != null) ...[
-                    SizedBox(height: 16),
-                    Container(
-                      height: 200,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey[300]!),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: FlutterMap(
-                          options: MapOptions(
-                            initialCenter: LatLng(event.latitude!, event.longitude!),
-                            initialZoom: 15.0,
-                          ),
-                          children: [
-                            TileLayer(
-                              urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/{z}/{x}/{y}?access_token={accessToken}',
-                              additionalOptions: {
-                                'accessToken': dotenv.env['MAPBOX_ACCESS_TOKEN'] ?? '',
-                              },
-                            ),
-                            MarkerLayer(
-                              markers: [
-                                Marker(
-                                  point: LatLng(event.latitude!, event.longitude!),
-                                  width: 40,
-                                  height: 40,
-                                  child: Icon(
-                                    Icons.location_on,
-                                    color: Colors.red,
-                                    size: 40,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
 
                   SizedBox(height: 16),
 
@@ -209,22 +179,22 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: event.isPast
+                      onPressed: widget.event.isPast
                           ? null
                           : () {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text('Successfully registered for ${event.name}!'),
+                                  content: Text('Successfully registered for ${widget.event.name}!'),
                                   backgroundColor: Colors.green,
                                 ),
                               );
                             },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: event.isPast ? Colors.grey : Colors.red,
+                        backgroundColor: widget.event.isPast ? Colors.grey : Colors.red,
                         padding: EdgeInsets.symmetric(vertical: 14),
                       ),
                       child: Text(
-                        event.isPast ? 'Event Ended' : 'Register for Event',
+                        widget.event.isPast ? 'Event Ended' : 'Register for Event',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -248,7 +218,7 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                   SizedBox(height: 12),
 
                   Text(
-                    event.description,
+                    widget.event.description,
                     style: TextStyle(
                       color: Colors.grey[600],
                       height: 1.5,
@@ -280,7 +250,7 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              event.clubName,
+                              widget.event.clubName,
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
@@ -301,13 +271,13 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                       _buildInfoCard(
                         icon: Icons.people,
                         label: 'Attendees',
-                        value: '${event.maxAttendees}',
+                        value: '${widget.event.maxAttendees}',
                         color: Colors.red,
                       ),
                       _buildInfoCard(
                         icon: Icons.location_on,
                         label: 'Venue',
-                        value: event.location.split(',').first,
+                        value: widget.event.location.split(',').first,
                         color: Colors.orange,
                       ),
                     ],
@@ -394,7 +364,7 @@ class ParticipantEventDetailScreen extends StatelessWidget {
                           context,
                           MaterialPageRoute(
                             builder: (context) =>
-                                ParticipantReportEventScreen(event: event),
+                                ParticipantReportEventScreen(event: widget.event),
                           ),
                         );
                       },
@@ -456,7 +426,7 @@ class ParticipantEventDetailScreen extends StatelessWidget {
     // For network or storage images
     final storageService = StorageService();
     return FutureBuilder<String?>(
-      future: storageService.resolveImageUrl(imageUrl),
+      future: _bannerImageFuture ?? storageService.resolveImageUrl(imageUrl),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return Container(

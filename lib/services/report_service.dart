@@ -12,6 +12,7 @@ class ReportService {
     required String eventName,
     required String reason,
     String? details,
+    String? imageUrl,
   }) async {
     try {
       final currentUser = _auth.currentUser;
@@ -27,6 +28,7 @@ class ReportService {
         userId: currentUser.uid,
         reason: reason,
         details: details,
+        imageUrl: imageUrl,
         status: 'pending',
         createdAt: DateTime.now(),
       );
@@ -72,6 +74,24 @@ class ReportService {
         .map((snapshot) {
       return snapshot.docs.map((doc) {
         return ReportModel.fromFirestore(doc.data(), doc.id);
+      }).toList();
+    });
+  }
+
+  // Get reports with status filter
+  Stream<List<ReportModel>> getReports({String? status}) {
+    Query query = _firestore.collection('reports');
+    
+    if (status != null && status != 'All') {
+      query = query.where('status', isEqualTo: status);
+    }
+    
+    return query
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        return ReportModel.fromFirestore(doc.data() as Map<String, dynamic>, doc.id);
       }).toList();
     });
   }
