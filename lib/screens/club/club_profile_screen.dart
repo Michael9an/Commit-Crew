@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'dart:io'; // Needed for File
+import 'package:image_picker/image_picker.dart'; // Add this to pubspec.yaml if missing
 import '../../models/club.dart';
 import '../../services/firestore_service.dart';
+import '../../services/storage_service.dart'; // Import StorageService
 
 class ClubProfileScreen extends StatefulWidget {
   final Club club;
@@ -17,14 +20,37 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
   late TextEditingController _descriptionController;
   late TextEditingController _websiteController;
   late TextEditingController _locationController;
+  
   bool _isEditing = false;
   bool _isLoading = false;
+  
+  // Services
   final FirestoreService _firestoreService = FirestoreService();
+  final StorageService _storageService = StorageService();
+  final ImagePicker _picker = ImagePicker();
+
+  // Image State
+  File? _selectedImage;
+  String _currentImageUrl = "";
 
   @override
   void initState() {
     super.initState();
     _initializeControllers();
+    _resolveInitialImage();
+  }
+
+  Future<void> _resolveInitialImage() async {
+    if (widget.club.imageUrl.isNotEmpty) {
+      // Use your service to convert the Drive link to a Direct link
+      String? resolved = await _storageService.resolveImageUrl(widget.club.imageUrl);
+      
+      if (mounted && resolved != null) {
+        setState(() {
+          _currentImageUrl = resolved;
+        });
+      }
+    }
   }
 
   void _initializeControllers() {
@@ -32,6 +58,11 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
     _descriptionController = TextEditingController(text: widget.club.description);
     _websiteController = TextEditingController(text: widget.club.website ?? '');
     _locationController = TextEditingController(text: widget.club.location ?? '');
+    
+    // Reset image selection when cancelling edit
+    setState(() {
+      _selectedImage = null;
+    });
   }
 
   @override
@@ -43,13 +74,39 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
     super.dispose();
   }
 
+  // --- IMAGE PICKER LOGIC ---
+  Future<void> _pickImage() async {
+    try {
+      final XFile? pickedFile = await _picker.pickImage(
+        source: ImageSource.gallery, // Gallery only (Club Icon)
+        maxWidth: 800, // Optimize size for faster upload
+        imageQuality: 85,
+      );
+
+      if (pickedFile != null) {
+        setState(() {
+          _selectedImage = File(pickedFile.path);
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error picking image: $e')),
+      );
+    }
+  }
+
   Future<void> _saveChanges() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
     try {
-      // Create a map of updated data
+      String? newImageUrl;
+
+      if (_selectedImage != null) {
+        newImageUrl = await _storageService.uploadClubLogo(_selectedImage!, widget.club.id);
+      }
+
       final Map<String, dynamic> updates = {
         'name': _nameController.text.trim(),
         'description': _descriptionController.text.trim(),
@@ -58,16 +115,34 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
         'updatedAt': DateTime.now(),
       };
 
+      if (newImageUrl != null) {
+        updates['imageUrl'] = newImageUrl;
+      }
+
       await _firestoreService.updateClub(widget.club.id, updates);
+
+      // --- UPDATED LOGIC HERE ---
+      // We need to resolve the NEW url immediately too
+      String? resolvedNewImage;
+      if (newImageUrl != null) {
+        resolvedNewImage = await _storageService.resolveImageUrl(newImageUrl);
+      }
 
       setState(() {
         _isEditing = false;
         _isLoading = false;
+        _selectedImage = null; 
+        
+        // Update local state with the RESOLVED url, not the raw one
+        if (resolvedNewImage != null) {
+          _currentImageUrl = resolvedNewImage;
+        }
       });
+      // --------------------------
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Club details updated successfully')),
+          SnackBar(content: Text('Club profile updated successfully')),
         );
       }
     } catch (e) {
@@ -91,8 +166,7 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
             onPressed: () {
               setState(() {
                 if (_isEditing) {
-                  // Cancel editing: revert changes
-                  _initializeControllers();
+                  _initializeControllers(); // Cancel edits
                 }
                 _isEditing = !_isEditing;
               });
@@ -108,42 +182,51 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               SizedBox(height: 20),
-              // Club Image
+              
+              // --- BULLETPROOF IMAGE SECTION ---
               Center(
                 child: Stack(
                   children: [
-                    CircleAvatar(
-                      radius: 60,
-                      backgroundImage: widget.club.imageUrl.isNotEmpty
-                          ? NetworkImage(widget.club.imageUrl)
-                          : null,
-                      child: widget.club.imageUrl.isEmpty
-                          ? Icon(Icons.group, size: 60)
-                          : null,
+                    // 1. The Container + ClipOval replaces CircleAvatar
+                    Container(
+                      width: 120, // Equivalent to radius 60 * 2
+                      height: 120,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.grey[200],
+                        border: Border.all(color: Colors.grey[300]!, width: 2),
+                      ),
+                      child: ClipOval(
+                        child: _buildSafeImage(),
+                      ),
                     ),
+                    
+                    // 2. Edit Button (Only visible in edit mode)
                     if (_isEditing)
                       Positioned(
                         bottom: 0,
                         right: 0,
-                        child: CircleAvatar(
-                          backgroundColor: Theme.of(context).primaryColor,
-                          radius: 18,
-                          child: IconButton(
-                            icon: Icon(Icons.camera_alt, size: 18, color: Colors.white),
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Image upload feature coming soon')),
-                              );
-                            },
+                        child: GestureDetector(
+                          onTap: _pickImage, 
+                          child: Container(
+                            padding: EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).primaryColor,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: Icon(Icons.photo_library, size: 20, color: Colors.white),
                           ),
                         ),
                       ),
                   ],
                 ),
               ),
+              // ---------------------------------
+
               SizedBox(height: 30),
 
-              // Club Status Badge
+              // ... (The rest of your code remains exactly the same: Badge, Fields, Buttons) ...
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
@@ -159,8 +242,6 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
                 ),
               ),
               SizedBox(height: 24),
-
-              // Form Fields
               _buildTextField(
                 controller: _nameController,
                 label: 'Club Name',
@@ -190,10 +271,7 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
                 icon: Icons.link,
                 enabled: _isEditing,
               ),
-
               SizedBox(height: 32),
-
-              // Save Button
               if (_isEditing)
                 SizedBox(
                   width: double.infinity,
@@ -201,11 +279,17 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _saveChanges,
                     child: _isLoading
-                        ? CircularProgressIndicator(color: Colors.white)
+                        ? Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                              SizedBox(width: 12),
+                              Text('Uploading & Saving...'),
+                            ],
+                          )
                         : Text('Save Changes'),
                   ),
                 ),
-                
               if (!_isEditing)
                 Padding(
                   padding: const EdgeInsets.only(top: 20.0),
@@ -219,6 +303,41 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
         ),
       ),
     );
+  }
+
+  // --- NEW SAFE IMAGE BUILDER ---
+  Widget _buildSafeImage() {
+    // Priority 1: User picked a local file (Preview)
+    if (_selectedImage != null) {
+      return Image.file(
+        _selectedImage!,
+        fit: BoxFit.cover,
+        width: 120,
+        height: 120,
+      );
+    }
+    
+    // Priority 2: Use the Resolved URL
+    if (_currentImageUrl.isNotEmpty) {
+      return Image.network(
+        _currentImageUrl,
+        fit: BoxFit.cover,
+        width: 120,
+        height: 120,
+        // Shows a loader while fetching
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Center(child: CircularProgressIndicator(strokeWidth: 2));
+        },
+        // Shows an icon if URL is bad/HTML (PREVENTS CRASH)
+        errorBuilder: (context, error, stackTrace) {
+          return Center(child: Icon(Icons.broken_image, size: 40, color: Colors.grey));
+        },
+      );
+    }
+
+    // Priority 3: Default Icon
+    return Center(child: Icon(Icons.group, size: 60, color: Colors.grey));
   }
 
   Widget _buildTextField({
@@ -236,9 +355,7 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         filled: !enabled,
         fillColor: enabled ? null : Colors.grey[100],
       ),

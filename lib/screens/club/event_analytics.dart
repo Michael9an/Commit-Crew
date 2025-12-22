@@ -3,6 +3,7 @@ import 'package:fl_chart/fl_chart.dart'; // Ensure you added this package
 import '../../models/club.dart';
 import '../../services/firestore_service.dart';
 import '../../models/event.dart';
+import '../../widgets/participant_list_sheet.dart';
 
 class EventAnalyticsScreen extends StatefulWidget {
   final Club club;
@@ -161,14 +162,34 @@ class _EventAnalyticsScreenState extends State<EventAnalyticsScreen> {
       elevation: 0,
       color: Colors.grey[50],
       margin: EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12), 
+        side: BorderSide(color: Colors.grey[200]!)
+      ),
       child: ListTile(
+        // Add functionality to open the list
+        onTap: () {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true, // Needed for full height sheet
+            backgroundColor: Colors.transparent,
+            builder: (context) => ParticipantListSheet(event: event),
+          );
+        },
         leading: CircleAvatar(
           backgroundColor: Colors.blue[100],
-          child: Text('${event.attendees.length}', style: TextStyle(color: Colors.blue[900], fontWeight: FontWeight.bold)),
+          child: Text(
+            '${event.attendees.length}', 
+            style: TextStyle(color: Colors.blue[900], fontWeight: FontWeight.bold)
+          ),
         ),
-        title: Text(event.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text('Attendees'),
+        title: Text(
+          event.name, 
+          maxLines: 1, 
+          overflow: TextOverflow.ellipsis, 
+          style: TextStyle(fontWeight: FontWeight.bold)
+        ),
+        subtitle: Text('Tap to view participants'), // Updated subtitle
         trailing: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
       ),
     );
