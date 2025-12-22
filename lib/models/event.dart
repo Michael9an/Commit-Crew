@@ -29,6 +29,8 @@ class EventModel {
   final List<String> tags;
   final String contactEmail;
   final String contactPhone;
+  final double? latitude;
+  final double? longitude;
 
   EventModel({
     required this.id,
@@ -59,6 +61,8 @@ class EventModel {
     this.tags = const [],
     this.contactEmail = '',
     this.contactPhone = '',
+    this.latitude,
+    this.longitude,
   });
 
   factory EventModel.fromFirestore(Map<String, dynamic> data, String documentId) {
@@ -104,6 +108,8 @@ class EventModel {
     tags: List<String>.from(data['tags'] ?? []),
     contactEmail: data['contactEmail'] ?? '',
     contactPhone: data['contactPhone'] ?? '',
+    latitude: (data['latitude'] as num?)?.toDouble(),
+    longitude: (data['longitude'] as num?)?.toDouble(),
   );
 }
   Map<String, dynamic> toFirestore() {
@@ -142,6 +148,8 @@ class EventModel {
       'tags': tags,
       'contactEmail': contactEmail,
       'contactPhone': contactPhone,
+      'latitude': latitude,
+      'longitude': longitude,
     };
   }
 
@@ -181,6 +189,8 @@ class EventModel {
       tags: List<String>.from(json['tags'] ?? []),
       contactEmail: json['contactEmail'] ?? '',
       contactPhone: json['contactPhone'] ?? '',
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
     );
   }
 
@@ -214,6 +224,8 @@ class EventModel {
       'tags': tags,
       'contactEmail': contactEmail,
       'contactPhone': contactPhone,
+      'latitude': latitude,
+      'longitude': longitude,
     };
   }
 
@@ -337,6 +349,8 @@ class EventModel {
     List<String>? tags,
     String? contactEmail,
     String? contactPhone,
+    double? latitude,
+    double? longitude,
   }) {
     return EventModel(
       id: id ?? this.id,
@@ -367,6 +381,8 @@ class EventModel {
       tags: tags ?? this.tags,
       contactEmail: contactEmail ?? this.contactEmail,
       contactPhone: contactPhone ?? this.contactPhone,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
     );
   }
 
