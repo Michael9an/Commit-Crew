@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 import '../models/event.dart';
 import '../models/user.dart';
 import '../models/club.dart';
@@ -14,7 +15,7 @@ class FirestoreService {
         .snapshots()
         .map((snapshot) {
       return snapshot.docs.map((doc) {
-        return EventModel.fromFirestore(doc.data(), doc.id); // Pass doc.id as second parameter
+        return EventModel.fromFirestore(doc.data(), doc.id); 
       }).toList();
     });
   }
@@ -25,16 +26,14 @@ class FirestoreService {
         .where('clubId', isEqualTo: clubId)
         .snapshots()
         .map((snapshot) {
-      // Sort locally instead of using orderBy on Firestore
       final events = snapshot.docs.map((doc) {
         return EventModel.fromFirestore(doc.data(), doc.id);
       }).toList();
       
-      // Sort by createdAt descending locally
       events.sort((a, b) {
         final aTime = int.tryParse(a.date ?? '0') ?? 0;
         final bTime = int.tryParse(b.date ?? '0') ?? 0;
-        return bTime.compareTo(aTime); // Descending order
+        return bTime.compareTo(aTime); 
       });
       
       return events;
@@ -44,16 +43,15 @@ class FirestoreService {
   // Add new event with timeout and retry
   Future<void> addEvent(EventModel event) async {
     try {
-      // Add with timeout to prevent hanging
       await _firestore
           .collection('events')
           .doc(event.id)
           .set(
             event.toFirestore(),
-            SetOptions(merge: true), // Enable merge to prevent conflicts
+            SetOptions(merge: true), 
           )
           .timeout(
-            Duration(seconds: 15),
+            const Duration(seconds: 15),
             onTimeout: () {
               throw TimeoutException('Failed to save event: operation timed out');
             },
@@ -375,7 +373,101 @@ class FirestoreService {
   Future<void> updateUser(UserModel user) async {
     await _firestore.collection('users').doc(user.id).update(user.toFirestore());
   }
+
+  // Mark a user as present for an event
+  Future<Map<String, dynamic>> markAttendance(String eventId, String userId) async {
+    try {
+      // 1. Fetch Event Details
+      final eventDoc = await _firestore.collection('events').doc(eventId).get();
+      if (!eventDoc.exists) return {'success': false, 'message': 'Event not found'};
+
+      final eventData = eventDoc.data()!;
+      
+      // 2. Parse Date
+      if (eventData['date'] == null) {
+         return {'success': false, 'message': 'Event date configuration error.'};
+      }
+      final DateTime eventDate = DateTime.fromMillisecondsSinceEpoch(int.parse(eventData['date']));
+      
+      // 3. Parse Time (With Safe Fallbacks for Issue #4)
+      // If start time is missing, assume 12:00 AM
+      final TimeOfDay startTime = eventData['startTime'] != null 
+          ? _parseTime(eventData['startTime']) 
+          : const TimeOfDay(hour: 0, minute: 0);
+
+      // If end time is missing (Issue #4 fix), assume 11:59 PM so attendance works all day
+      final TimeOfDay endTime = eventData['endTime'] != null 
+          ? _parseTime(eventData['endTime']) 
+          : const TimeOfDay(hour: 23, minute: 59);
+
+      // Combine
+      final DateTime startDateTime = DateTime(
+        eventDate.year, eventDate.month, eventDate.day, 
+        startTime.hour, startTime.minute
+      );
+      
+      final DateTime endDateTime = DateTime(
+        eventDate.year, eventDate.month, eventDate.day, 
+        endTime.hour, endTime.minute
+      );
+
+      final DateTime now = DateTime.now();
+
+      // 4. Validate Time Buffer (30 mins before -> End time)
+      final DateTime scanStart = startDateTime.subtract(const Duration(minutes: 30));
+      
+      if (now.isBefore(scanStart)) {
+        return {'success': false, 'message': 'Too early! Check-in starts 30 mins before event.'};
+      }
+      
+      if (now.isAfter(endDateTime)) {
+        return {'success': false, 'message': 'Event has ended. Check-in closed.'};
+      }
+
+      // 5. Check Registration in "registers" collection
+      final querySnapshot = await _firestore
+          .collection('registers')
+          .where('eventId', isEqualTo: eventId)
+          .where('userId', isEqualTo: userId)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isEmpty) {
+        return {'success': false, 'message': 'You are not registered for this event.'};
+      }
+
+      final doc = querySnapshot.docs.first;
+      
+      // Check if already attended
+      if (doc.data()['status'] == 'Attended') {
+        return {'success': false, 'message': 'You have already checked in!'};
+      }
+
+      // 6. Mark Success
+      await _firestore.collection('registers').doc(doc.id).update({
+        'status': 'Attended',
+        'checkInTime': FieldValue.serverTimestamp(),
+      });
+      
+      return {'success': true, 'message': 'Check-in successful!'};
+
+    } catch (e) {
+      print("Error marking attendance: $e");
+      return {'success': false, 'message': 'System error: $e'};
+    }
+  }
+
+  TimeOfDay _parseTime(String timeStr) {
+    try {
+      final parts = timeStr.split(':');
+      return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+    } catch (e) {
+      // Fallback if format is wrong
+      return const TimeOfDay(hour: 0, minute: 0);
+    }
+  }
 }
+
 
 // Analytics Models
 class ClubAnalytics {

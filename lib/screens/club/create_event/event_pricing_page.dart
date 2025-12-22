@@ -1,4 +1,3 @@
-// event_pricing_page.dart
 import 'package:flutter/material.dart';
 import '../../../models/event.dart';
 
@@ -20,53 +19,23 @@ class EventPricingPage extends StatefulWidget {
 class _EventPricingPageState extends State<EventPricingPage> {
   final _formKey = GlobalKey<FormState>();
   final _priceController = TextEditingController();
-  final _refundPolicyController = TextEditingController();
+  final _refundMethodController = TextEditingController();
+  final _refundDaysController = TextEditingController();
   
   late EventModel _localEvent;
   bool _isFree = true;
-  DateTime _publishTime = DateTime.now();
+  bool _refundEnabled = false;
 
   @override
   void initState() {
     super.initState();
     _localEvent = widget.eventData;
     _isFree = _localEvent.isFree;
-    _priceController.text = _localEvent.price == 0 ? '' : _localEvent.price.toString();
-    _refundPolicyController.text = _localEvent.refundPolicy ?? '';
+    _refundEnabled = _localEvent.refundEnabled;
     
-    // Set publish time from event data if exists
-    if (_localEvent.publishTime != null) {
-      final timestamp = int.tryParse(_localEvent.publishTime!);
-      if (timestamp != null) {
-        _publishTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
-      }
-    }
-  }
-
-  Future<void> _selectPublishTime() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _publishTime,
-      firstDate: DateTime.now(),
-      lastDate: DateTime(2100),
-    );
-    if (picked != null) {
-      final TimeOfDay? time = await showTimePicker(
-        context: context,
-        initialTime: TimeOfDay.fromDateTime(_publishTime),
-      );
-      if (time != null) {
-        setState(() {
-          _publishTime = DateTime(
-            picked.year,
-            picked.month,
-            picked.day,
-            time.hour,
-            time.minute,
-          );
-        });
-      }
-    }
+    _priceController.text = _localEvent.price == 0 ? '' : _localEvent.price.toString();
+    _refundMethodController.text = _localEvent.refundMethodDetails;
+    _refundDaysController.text = _localEvent.refundDeadlineDays.toString();
   }
 
   void _saveAndContinue() {
@@ -74,12 +43,24 @@ class _EventPricingPageState extends State<EventPricingPage> {
       _formKey.currentState!.save();
       
       final price = _isFree ? 0.0 : double.tryParse(_priceController.text) ?? 0.0;
+      final days = int.tryParse(_refundDaysController.text) ?? 0;
       
+      // Auto-generate a readable policy string for backward compatibility
+      String readablePolicy = "No refunds available.";
+      if (!_isFree && _refundEnabled) {
+        readablePolicy = "Refunds allowed up to $days days before event via ${_refundMethodController.text}.";
+      } else if (_isFree) {
+        readablePolicy = "Free event. Registration cancellation allowed.";
+      }
+
       final updated = _localEvent.copyWith(
         isFree: _isFree,
         price: price,
-        refundPolicy: _refundPolicyController.text.isEmpty ? null : _refundPolicyController.text,
-        publishTime: _publishTime.millisecondsSinceEpoch.toString(),
+        // Save new policy fields
+        refundEnabled: _isFree ? false : _refundEnabled,
+        refundDeadlineDays: _isFree ? 0 : days,
+        refundMethodDetails: _isFree ? '' : _refundMethodController.text,
+        refundPolicy: readablePolicy, // Keep legacy field populated
       );
 
       widget.onNext(updated);
@@ -89,129 +70,118 @@ class _EventPricingPageState extends State<EventPricingPage> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       child: Form(
         key: _formKey,
         child: ListView(
           children: [
-            // Free Event Toggle
-            Card(
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            // 1. FREE EVENT TOGGLE
+            SwitchListTile(
+              title: const Text("Free Event", style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text("Participants can join without payment"),
+              value: _isFree,
+              onChanged: (val) {
+                setState(() {
+                  _isFree = val;
+                  if (val) _priceController.clear();
+                });
+              },
+              contentPadding: EdgeInsets.zero,
+            ),
+            const Divider(),
+
+            // 2. PAID EVENT SETTINGS
+            if (!_isFree) ...[
+              const SizedBox(height: 10),
+              Text("Pricing Configuration", style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              
+              TextFormField(
+                controller: _priceController,
+                decoration: const InputDecoration(
+                  labelText: 'Ticket Price (RM)',
+                  prefixIcon: Icon(Icons.attach_money),
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                validator: (val) => (val == null || val.isEmpty || double.tryParse(val) == 0) ? "Enter a valid price" : null,
+              ),
+              const SizedBox(height: 20),
+
+              Text("Refund Policy", style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 5),
+              
+              // Enable Refunds Switch
+              Container(
+                decoration: BoxDecoration(
+                  color: _refundEnabled ? Colors.green[50] : Colors.red[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _refundEnabled ? Colors.green : Colors.red),
+                ),
+                child: SwitchListTile(
+                  title: Text(_refundEnabled ? "Refunds Allowed" : "No Refunds", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(_refundEnabled ? "Participants can request money back" : "All ticket sales are final"),
+                  value: _refundEnabled,
+                  onChanged: (val) => setState(() => _refundEnabled = val),
+                ),
+              ),
+
+              // Detailed Refund Settings (Only if enabled)
+              if (_refundEnabled) ...[
+                const SizedBox(height: 16),
+                Row(
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Free Event',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
+                    Expanded(
+                      flex: 2,
+                      child: TextFormField(
+                        controller: _refundDaysController,
+                        decoration: const InputDecoration(
+                          labelText: 'Deadline (Days)',
+                          hintText: 'e.g. 3',
+                          helperText: 'Days before event',
+                          border: OutlineInputBorder(),
                         ),
-                        Text(
-                          'This event is free for all students',
-                          style: TextStyle(color: Colors.grey[600]),
-                        ),
-                      ],
+                        keyboardType: TextInputType.number,
+                        validator: (val) => (val == null || val.isEmpty) ? "Required" : null,
+                      ),
                     ),
-                    Switch(
-                      value: _isFree,
-                      onChanged: (value) {
-                        setState(() {
-                          _isFree = value;
-                          if (value) {
-                            _priceController.text = '';
-                          }
-                        });
-                      },
+                    const SizedBox(width: 16),
+                    Expanded(
+                      flex: 3,
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        color: Colors.grey[100],
+                        child: const Text("Users cannot request refund after this deadline.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      ),
                     ),
                   ],
                 ),
-              ),
-            ),
-            SizedBox(height: 20),
-
-            // Price (only show if not free)
-            if (!_isFree) ...[
-              TextFormField(
-                controller: _priceController,
-                decoration: InputDecoration(
-                  labelText: 'Ticket Price *',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.attach_money),
-                  prefixText: '\$ ',
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _refundMethodController,
+                  decoration: const InputDecoration(
+                    labelText: 'Refund Method / Instructions',
+                    hintText: 'e.g. Manual transfer to user bank within 7 days',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
+                  ),
+                  maxLines: 3,
+                  validator: (val) => (val == null || val.isEmpty) ? "Please explain how you will refund" : null,
                 ),
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-                validator: (value) {
-                  if (!_isFree && (value == null || value.isEmpty)) {
-                    return 'Please enter ticket price';
-                  }
-                  final price = double.tryParse(value ?? '');
-                  if (!_isFree && (price == null || price <= 0)) {
-                    return 'Please enter a valid price';
-                  }
-                  return null;
-                },
-              ),
-              SizedBox(height: 16),
+              ],
             ],
 
-            // Refund Policy
-            TextFormField(
-              controller: _refundPolicyController,
-              decoration: InputDecoration(
-                labelText: 'Refund Policy',
-                border: OutlineInputBorder(),
-                alignLabelWithHint: true,
-                hintText: 'Describe your refund policy...',
-              ),
-              maxLines: 3,
-            ),
-            SizedBox(height: 16),
-
-            // Publish Time
-            GestureDetector(
-              onTap: _selectPublishTime,
-              child: AbsorbPointer(
-                child: TextFormField(
-                  decoration: InputDecoration(
-                    labelText: 'Publish Time',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.schedule),
-                    hintText: 'When should this event go live?',
-                  ),
-                  controller: TextEditingController(
-                    text: '${_publishTime.day}/${_publishTime.month}/${_publishTime.year} ${_publishTime.hour}:${_publishTime.minute.toString().padLeft(2, '0')}',
-                  ),
-                ),
-              ),
-            ),
-            SizedBox(height: 30),
-
-            // Navigation Buttons
+            const SizedBox(height: 40),
+            
+            // NAVIGATION BUTTONS
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
-                    onPressed: widget.onBack,
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: Size(0, 50),
-                    ),
-                    child: Text('Back'),
-                  ),
+                  child: OutlinedButton(onPressed: widget.onBack, style: OutlinedButton.styleFrom(minimumSize: const Size(0, 50)), child: const Text('Back')),
                 ),
-                SizedBox(width: 16),
+                const SizedBox(width: 16),
                 Expanded(
-                  child: ElevatedButton(
-                    onPressed: _saveAndContinue,
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: Size(0, 50),
-                    ),
-                    child: Text('Next: Overview'),
-                  ),
+                  child: ElevatedButton(onPressed: _saveAndContinue, style: ElevatedButton.styleFrom(minimumSize: const Size(0, 50)), child: const Text('Next')),
                 ),
               ],
             ),
@@ -219,12 +189,5 @@ class _EventPricingPageState extends State<EventPricingPage> {
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _priceController.dispose();
-    _refundPolicyController.dispose();
-    super.dispose();
   }
 }

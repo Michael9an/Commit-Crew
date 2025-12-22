@@ -9,6 +9,8 @@ class EventModel {
   final String endTime;
   final String? bannerUrl;
   final String location;
+  final double? latitude;
+  final double? longitude;
   final String clubId;
   final String clubName;
   final String? clubImageUrl;
@@ -20,6 +22,7 @@ class EventModel {
   final DateTime? createdAt;
   final String status;
   final List<String> attendees;
+  final List<String> attendeesEmail;
   final List<String> waitlist;
   final int views;
   final int shares;
@@ -29,8 +32,9 @@ class EventModel {
   final List<String> tags;
   final String contactEmail;
   final String contactPhone;
-  final double? latitude;
-  final double? longitude;
+  final bool refundEnabled;          // Can users request a refund?
+  final int refundDeadlineDays;      // How many days before event? (e.g. 3)
+  final String refundMethodDetails;  // Instructions (e.g. "Bank Transfer to...")
 
   EventModel({
     required this.id,
@@ -41,6 +45,8 @@ class EventModel {
     required this.endTime,
     this.bannerUrl,
     required this.location,
+    this.latitude,
+    this.longitude,
     required this.clubId,
     required this.clubName,
     this.clubImageUrl,
@@ -52,6 +58,7 @@ class EventModel {
     this.createdAt,
     this.status = 'upcoming',
     this.attendees = const [],
+    this.attendeesEmail = const [],
     this.waitlist = const [],
     this.views = 0,
     this.shares = 0,
@@ -61,59 +68,58 @@ class EventModel {
     this.tags = const [],
     this.contactEmail = '',
     this.contactPhone = '',
-    this.latitude,
-    this.longitude,
+    this.refundEnabled = false,
+    this.refundDeadlineDays = 0,
+    this.refundMethodDetails = '',
   });
 
-  factory EventModel.fromFirestore(Map<String, dynamic> data, String documentId) {
-  // Helper function to convert Firestore Timestamp to DateTime
-  DateTime? _convertToDateTime(dynamic timestamp) {
-    if (timestamp == null) return null;
-    if (timestamp is Timestamp) {
-      return timestamp.toDate();
-    } else if (timestamp is int) {
-      return DateTime.fromMillisecondsSinceEpoch(timestamp);
-    } else if (timestamp is String) {
-      return DateTime.tryParse(timestamp);
+ factory EventModel.fromFirestore(Map<String, dynamic> data, String documentId) {
+    
+    DateTime? _convertToDateTime(dynamic timestamp) {
+      if (timestamp == null) return null;
+      if (timestamp is Timestamp) return timestamp.toDate();
+      if (timestamp is int) return DateTime.fromMillisecondsSinceEpoch(timestamp);
+      if (timestamp is String) return DateTime.tryParse(timestamp);
+      return null;
     }
-    return null;
+
+    return EventModel(
+      id: documentId,
+      name: data['name'] ?? '',
+      description: data['description'] ?? '',
+      date: data['date'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      startTime: data['startTime'] ?? '',
+      endTime: data['endTime'] ?? '',
+      bannerUrl: data['bannerUrl'],
+      location: data['location'] ?? '',
+      latitude: data['latitude']?.toDouble(), 
+      longitude: data['longitude']?.toDouble(),      
+      clubId: data['clubId'] ?? '',
+      clubName: data['clubName'] ?? '',
+      clubImageUrl: data['clubImageUrl'],
+      maxAttendees: data['maxAttendees'] ?? 0,
+      price: (data['price'] ?? 0.0).toDouble(),
+      isFree: data['isFree'] ?? true,
+      refundPolicy: data['refundPolicy'],
+      publishTime: data['publishTime'],
+      createdAt: _convertToDateTime(data['createdAt']),
+      status: data['status'] ?? 'upcoming',
+      attendees: List<String>.from(data['attendees'] ?? []),
+      attendeesEmail: List<String>.from(data['attendeesEmail'] ?? []),
+      waitlist: List<String>.from(data['waitlist'] ?? []),
+      views: data['views'] ?? 0,
+      shares: data['shares'] ?? 0,
+      isCancelled: data['isCancelled'] ?? false,
+      updatedAt: _convertToDateTime(data['updatedAt']),
+      category: data['category'] ?? 'General',
+      tags: List<String>.from(data['tags'] ?? []),
+      contactEmail: data['contactEmail'] ?? '',
+      contactPhone: data['contactPhone'] ?? '',
+    );
   }
 
-  return EventModel(
-    id: documentId, // Use the document ID instead of data['id']
-    name: data['name'] ?? '',
-    description: data['description'] ?? '',
-    date: data['date'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-    startTime: data['startTime'] ?? '',
-    endTime: data['endTime'] ?? '',
-    bannerUrl: data['bannerUrl'],
-    location: data['location'] ?? '',
-    clubId: data['clubId'] ?? '',
-    clubName: data['clubName'] ?? '',
-    clubImageUrl: data['clubImageUrl'],
-    maxAttendees: data['maxAttendees'] ?? 0,
-    price: (data['price'] ?? 0.0).toDouble(),
-    isFree: data['isFree'] ?? true,
-    refundPolicy: data['refundPolicy'],
-    publishTime: data['publishTime'],
-    createdAt: _convertToDateTime(data['createdAt']),
-    status: data['status'] ?? 'upcoming',
-    attendees: List<String>.from(data['attendees'] ?? []),
-    waitlist: List<String>.from(data['waitlist'] ?? []),
-    views: data['views'] ?? 0,
-    shares: data['shares'] ?? 0,
-    isCancelled: data['isCancelled'] ?? false,
-    updatedAt: _convertToDateTime(data['updatedAt']),
-    category: data['category'] ?? 'General',
-    tags: List<String>.from(data['tags'] ?? []),
-    contactEmail: data['contactEmail'] ?? '',
-    contactPhone: data['contactPhone'] ?? '',
-    latitude: (data['latitude'] as num?)?.toDouble(),
-    longitude: (data['longitude'] as num?)?.toDouble(),
-  );
-}
+
   Map<String, dynamic> toFirestore() {
-    // Helper function to convert DateTime to Firestore Timestamp
     dynamic _convertToTimestamp(DateTime? dateTime) {
       if (dateTime == null) return FieldValue.serverTimestamp();
       return Timestamp.fromDate(dateTime);
@@ -128,6 +134,8 @@ class EventModel {
       'endTime': endTime,
       'bannerUrl': bannerUrl,
       'location': location,
+      'latitude': latitude,
+      'longitude': longitude,
       'clubId': clubId,
       'clubName': clubName,
       'clubImageUrl': clubImageUrl,
@@ -139,6 +147,7 @@ class EventModel {
       'createdAt': _convertToTimestamp(createdAt),
       'status': status,
       'attendees': attendees,
+      'attendeesEmail': attendeesEmail,
       'waitlist': waitlist,
       'views': views,
       'shares': shares,
@@ -148,13 +157,14 @@ class EventModel {
       'tags': tags,
       'contactEmail': contactEmail,
       'contactPhone': contactPhone,
-      'latitude': latitude,
-      'longitude': longitude,
+      'refundEnabled': refundEnabled,
+      'refundDeadlineDays': refundDeadlineDays,
+      'refundMethodDetails': refundMethodDetails,
     };
   }
 
+  // 3. Corrected fromJson (Added missing lat/lng logic)
   factory EventModel.fromJson(Map<String, dynamic> json) {
-    // Helper function to parse date strings
     DateTime? _parseDateTime(String? dateString) {
       if (dateString == null) return null;
       return DateTime.tryParse(dateString);
@@ -169,6 +179,8 @@ class EventModel {
       endTime: json['endTime'] ?? '',
       bannerUrl: json['bannerUrl'],
       location: json['location'],
+      latitude: json['latitude']?.toDouble(),
+      longitude: json['longitude']?.toDouble(),
       clubId: json['clubId'],
       clubName: json['clubName'],
       clubImageUrl: json['clubImageUrl'],
@@ -180,6 +192,7 @@ class EventModel {
       createdAt: _parseDateTime(json['createdAt']),
       status: json['status'] ?? 'upcoming',
       attendees: List<String>.from(json['attendees'] ?? []),
+      attendeesEmail: List<String>.from(json['attendeesEmail'] ?? []), // Added this missing field
       waitlist: List<String>.from(json['waitlist'] ?? []),
       views: json['views'] ?? 0,
       shares: json['shares'] ?? 0,
@@ -204,6 +217,8 @@ class EventModel {
       'endTime': endTime,
       'bannerUrl': bannerUrl,
       'location': location,
+      'latitude': latitude,
+      'longitude': longitude,
       'clubId': clubId,
       'clubName': clubName,
       'clubImageUrl': clubImageUrl,
@@ -215,6 +230,7 @@ class EventModel {
       'createdAt': createdAt?.toIso8601String(),
       'status': status,
       'attendees': attendees,
+      'attendeesEmail': attendeesEmail, // Added this missing field
       'waitlist': waitlist,
       'views': views,
       'shares': shares,
@@ -298,8 +314,8 @@ class EventModel {
   }
 
   String get priceDisplay {
-    if (isFree) return 'Free';
-    return '\$${price.toStringAsFixed(2)}';
+    if (isFree) return 'FREE';
+    return 'RM${price.toStringAsFixed(2)}';
   }
 
   String get capacityDisplay {
@@ -329,6 +345,8 @@ class EventModel {
     String? endTime,
     String? bannerUrl,
     String? location,
+    double? latitude, 
+    double? longitude, 
     String? clubId,
     String? clubName,
     String? clubImageUrl,
@@ -349,8 +367,9 @@ class EventModel {
     List<String>? tags,
     String? contactEmail,
     String? contactPhone,
-    double? latitude,
-    double? longitude,
+    bool? refundEnabled,
+    int? refundDeadlineDays,
+    String? refundMethodDetails,
   }) {
     return EventModel(
       id: id ?? this.id,
@@ -361,6 +380,8 @@ class EventModel {
       endTime: endTime ?? this.endTime,
       bannerUrl: bannerUrl ?? this.bannerUrl,
       location: location ?? this.location,
+      latitude: latitude ?? this.latitude, 
+      longitude: longitude ?? this.longitude, 
       clubId: clubId ?? this.clubId,
       clubName: clubName ?? this.clubName,
       clubImageUrl: clubImageUrl ?? this.clubImageUrl,
@@ -381,8 +402,9 @@ class EventModel {
       tags: tags ?? this.tags,
       contactEmail: contactEmail ?? this.contactEmail,
       contactPhone: contactPhone ?? this.contactPhone,
-      latitude: latitude ?? this.latitude,
-      longitude: longitude ?? this.longitude,
+      refundEnabled: refundEnabled ?? this.refundEnabled,
+      refundDeadlineDays: refundDeadlineDays ?? this.refundDeadlineDays,
+      refundMethodDetails: refundMethodDetails ?? this.refundMethodDetails,
     );
   }
 
@@ -554,4 +576,18 @@ class EventModel {
 
   @override
   int get hashCode => id.hashCode;
+
+  // --- HELPER: CHECK IF EDIT IS ALLOWED ---
+  // Returns TRUE if we are currently BEFORE the 3-day lockout
+  bool get canEdit {
+    // If date isn't set, allow edit
+    final timestamp = int.tryParse(date);
+    if (timestamp == null) return true;
+    
+    final eventDateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
+    // Deadline is 3 days before the event
+    final deadline = eventDateTime.subtract(const Duration(days: 3));
+    
+    return DateTime.now().isBefore(deadline);
+  }
 }

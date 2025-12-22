@@ -95,6 +95,12 @@ class StorageService {
     }
   }
 
+  Future<String?> uploadClubLogo(File imageFile, String clubId) async {
+    String extension = imageFile.path.split('.').last;
+    // We use "club_logo" as the type so files are named nicely in Drive (e.g., club_logo_123.jpg)
+    return _uploadToGoogleDrive(clubId, imageFile, extension, "club_logo");
+  }
+
   String _getMimeType(String extension) {
     switch (extension.toLowerCase()) {
       case 'pdf': return 'application/pdf';
