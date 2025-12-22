@@ -43,34 +43,22 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
 
   // Date/Time Variables
   DateTime _selectedDate = DateTime.now();
-  TimeOfDay _selectedTime = TimeOfDay.now();
+  
+  // --- UPDATED: Start and End Time ---
+  TimeOfDay _startTime = const TimeOfDay(hour: 9, minute: 0);
+  TimeOfDay _endTime = const TimeOfDay(hour: 17, minute: 0);
 
-  // --- NEW: Category Logic ---
+  // Category Logic
   String _selectedCategory = 'General';
   final List<String> _categories = [
-    'General',
-    'Technology',
-    'Sports',
-    'Music',
-    'Arts', 
-    'Business',
-    'Education', 
-    'Social', 
-    'Workshop', 
-    'Gaming',
-    'Health'
+    'General', 'Technology', 'Sports', 'Music', 'Arts', 
+    'Business', 'Education', 'Social', 'Workshop', 'Gaming', 'Health'
   ];
 
-  // Clean Map Style
   final String _mapStyle = '''
   [
     {
       "featureType": "poi",
-      "elementType": "labels.icon",
-      "stylers": [{"visibility": "off"}]
-    },
-    {
-      "featureType": "transit",
       "elementType": "labels.icon",
       "stylers": [{"visibility": "off"}]
     }
@@ -86,24 +74,47 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     _locationController.text = _localEvent.location;
     _maxAttendeesController.text = _localEvent.maxAttendees.toString();
     
-    // Initialize Category
     if (_localEvent.category.isNotEmpty && _categories.contains(_localEvent.category)) {
       _selectedCategory = _localEvent.category;
     }
 
+    // --- LOAD DATE & TIMES ---
     if (_localEvent.date != null) {
       final timestamp = int.tryParse(_localEvent.date!);
       if (timestamp != null) {
-        final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
-        _selectedDate = dateTime;
-        _selectedTime = TimeOfDay.fromDateTime(dateTime);
+        _selectedDate = DateTime.fromMillisecondsSinceEpoch(timestamp);
       }
+    }
+    
+    if (_localEvent.startTime.isNotEmpty) {
+      _startTime = _parseTime(_localEvent.startTime);
+    }
+    
+    if (_localEvent.endTime.isNotEmpty) {
+      _endTime = _parseTime(_localEvent.endTime);
     }
 
     _determineUserLocation();
   }
 
-  // --- DATE & TIME LOGIC ---
+  // Helper to parse "HH:mm" string back to TimeOfDay
+  TimeOfDay _parseTime(String timeStr) {
+    try {
+      final parts = timeStr.split(':');
+      return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+    } catch (e) {
+      return TimeOfDay.now();
+    }
+  }
+
+  // 1. Force 24-hour format "HH:mm" to ensure consistency
+  String _formatTimeForDB(TimeOfDay time) {
+    final String hour = time.hour.toString().padLeft(2, '0');
+    final String minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  // --- TIME PICKERS ---
   Future<void> _selectDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -112,21 +123,29 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
       lastDate: DateTime(2100),
     );
     if (picked != null && picked != _selectedDate) {
-      setState(() {
-        _selectedDate = picked;
-      });
+      setState(() => _selectedDate = picked);
     }
   }
 
-  Future<void> _selectTime() async {
+  Future<void> _selectStartTime() async {
     final TimeOfDay? picked = await showTimePicker(
       context: context,
-      initialTime: _selectedTime,
+      initialTime: _startTime,
     );
-    if (picked != null && picked != _selectedTime) {
-      setState(() {
-        _selectedTime = picked;
-      });
+    if (picked != null) {
+      setState(() => _startTime = picked);
+    }
+  }
+
+  Future<void> _selectEndTime() async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: _endTime,
+    );
+    if (picked != null) {
+      // Basic validation: End time should be after start time? 
+      // (Optional: You can add a check here)
+      setState(() => _endTime = picked);
     }
   }
 
@@ -142,7 +161,6 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     }
 
     Position position = await Geolocator.getCurrentPosition();
-    
     if (!mounted) return;
 
     setState(() {
@@ -163,7 +181,6 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
 
     try {
       List<Location> locations = await locationFromAddress(query);
-      
       if (!mounted) return;
 
       if (locations.isNotEmpty) {
@@ -171,30 +188,22 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         final target = LatLng(loc.latitude, loc.longitude);
         
         final controller = await _mapController.future;
-        if (mounted) {
-          controller.animateCamera(CameraUpdate.newLatLngZoom(target, 16));
-        }
+        if (mounted) controller.animateCamera(CameraUpdate.newLatLngZoom(target, 16));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Location not found")));
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Search failed")));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Search failed")));
     } finally {
-      if (mounted) {
-        setState(() => _isMapLoading = false);
-      }
+      if (mounted) setState(() => _isMapLoading = false);
     }
   }
 
   Future<void> _resolveAddressFromPin() async {
     try {
       List<Placemark> placemarks = await placemarkFromCoordinates(
-        _currentMapPosition.latitude, 
-        _currentMapPosition.longitude
+        _currentMapPosition.latitude, _currentMapPosition.longitude
       );
-
       if (!mounted) return;
 
       if (placemarks.isNotEmpty) {
@@ -203,10 +212,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         if (place.name != null && place.name != place.street) {
           address = "${place.name}, $address";
         }
-        
-        setState(() {
-          _detectedMapAddress = address;
-        });
+        setState(() => _detectedMapAddress = address);
       }
     } catch (e) {}
   }
@@ -228,9 +234,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   Future<void> _pickImage() async {
      try {
       final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
-      
       if (!mounted) return;
-
       if (image != null) {
          setState(() {
           _localEvent = _localEvent.copyWith(bannerUrl: image.path);
@@ -241,24 +245,27 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     }
   }
 
+  // 2. In _saveAndContinue, use this helper explicitly
   void _saveAndContinue() {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
       
       final combinedDateTime = DateTime(
         _selectedDate.year, _selectedDate.month, _selectedDate.day,
-        _selectedTime.hour, _selectedTime.minute,
+        _startTime.hour, _startTime.minute,
       );
       
       _localEvent = _localEvent.copyWith(
         date: combinedDateTime.millisecondsSinceEpoch.toString(),
+        startTime: _formatTimeForDB(_startTime),
+        endTime: _formatTimeForDB(_endTime),     
         name: _nameController.text,
         description: _descriptionController.text,
         location: _locationController.text,
         maxAttendees: int.tryParse(_maxAttendeesController.text) ?? 0,
         latitude: _currentMapPosition.latitude,
         longitude: _currentMapPosition.longitude,
-        category: _selectedCategory, // SAVE THE CATEGORY
+        category: _selectedCategory,
       );
 
       widget.onNext(_localEvent);
@@ -287,14 +294,11 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                         if (snapshot.hasData && snapshot.data != null) {
                           imageProvider = NetworkImage(snapshot.data!);
                         }
-                        
                         return CircleAvatar(
                           radius: 24,
                           backgroundImage: imageProvider,
                           backgroundColor: Colors.grey[300],
-                          child: imageProvider == null 
-                              ? const Icon(Icons.group, color: Colors.grey) 
-                              : null,
+                          child: imageProvider == null ? const Icon(Icons.group, color: Colors.grey) : null,
                         );
                       },
                     ),
@@ -329,7 +333,6 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                   child: Builder(
                     builder: (context) {
                       final rawUrl = _localEvent.bannerUrl;
-                      
                       if (rawUrl == null || rawUrl.isEmpty || rawUrl == 'file:///') {
                         return const Center(
                           child: Column(
@@ -338,23 +341,15 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                           ),
                         );
                       }
-
                       if (rawUrl.startsWith('http')) {
                         return FutureBuilder<String?>(
                           future: StorageService().resolveImageUrl(rawUrl),
                           builder: (context, snapshot) {
-                            if (snapshot.connectionState == ConnectionState.waiting) {
-                              return const Center(child: CircularProgressIndicator());
-                            }
-                            return Image.network(
-                              snapshot.data ?? rawUrl, 
-                              fit: BoxFit.cover,
-                              errorBuilder: (_,__,___) => const Center(child: Icon(Icons.broken_image)),
-                            );
+                            if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+                            return Image.network(snapshot.data ?? rawUrl, fit: BoxFit.cover, errorBuilder: (_,__,___) => const Center(child: Icon(Icons.broken_image)));
                           },
                         );
                       }
-
                       return Image.file(File(rawUrl), fit: BoxFit.cover);
                     },
                   ),
@@ -363,15 +358,13 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
             ),
             const SizedBox(height: 20),
 
-            // Name
+            // Name & Description
             TextFormField(
               controller: _nameController,
               decoration: const InputDecoration(labelText: 'Event Name *', border: OutlineInputBorder()),
               validator: (v) => v!.isEmpty ? 'Required' : null,
             ),
             const SizedBox(height: 16),
-
-            // Description
             TextFormField(
               controller: _descriptionController,
               decoration: const InputDecoration(labelText: 'Description *', border: OutlineInputBorder()),
@@ -379,14 +372,10 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
             ),
             const SizedBox(height: 16),
 
-            // --- NEW: Category Dropdown ---
+            // Category Dropdown
             DropdownButtonFormField<String>(
               value: _selectedCategory,
-              decoration: const InputDecoration(
-                labelText: 'Category',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.category),
-              ),
+              decoration: const InputDecoration(labelText: 'Category', border: OutlineInputBorder(), prefixIcon: Icon(Icons.category)),
               items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
               onChanged: (val) {
                 if (val != null) setState(() => _selectedCategory = val);
@@ -394,29 +383,18 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
             ),
             const SizedBox(height: 24),
 
-            // --- EMBEDDED MAP SECTION ---
+            // Map Section
             const Text("Event Location", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 8),
-            
             TextFormField(
               controller: _locationController,
-              decoration: const InputDecoration(
-                labelText: 'Venue Name',
-                hintText: 'Type venue name or search map',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.location_on),
-              ),
-              validator: (v) => v!.isEmpty ? 'Please enter a location name' : null,
+              decoration: const InputDecoration(labelText: 'Venue Name', border: OutlineInputBorder(), prefixIcon: Icon(Icons.location_on)),
+              validator: (v) => v!.isEmpty ? 'Required' : null,
             ),
-            
             const SizedBox(height: 12),
-            
             Container(
               height: 300,
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey[400]!),
-                borderRadius: BorderRadius.circular(12),
-              ),
+              decoration: BoxDecoration(border: Border.all(color: Colors.grey[400]!), borderRadius: BorderRadius.circular(12)),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: Stack(
@@ -428,81 +406,41 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                       myLocationButtonEnabled: false,
                       zoomControlsEnabled: false,
                       mapToolbarEnabled: false,
-                      onMapCreated: (c) {
-                        _mapController.complete(c);
-                        c.setMapStyle(_mapStyle);
-                      },
+                      onMapCreated: (c) { _mapController.complete(c); c.setMapStyle(_mapStyle); },
                       onCameraMove: _onCameraMove,
                       onCameraIdle: _onCameraIdle,
-                      gestureRecognizers: {}, 
                     ),
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.only(bottom: 35),
-                        child: Icon(Icons.location_on, size: 45, color: Colors.red),
-                      ),
-                    ),
+                    const Center(child: Padding(padding: EdgeInsets.only(bottom: 35), child: Icon(Icons.location_on, size: 45, color: Colors.red))),
                     Positioned(
-                      top: 10,
-                      left: 10,
-                      right: 10,
+                      top: 10, left: 10, right: 10,
                       child: Container(
                         height: 45,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
-                        ),
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)]),
                         child: TextField(
                           controller: _mapSearchController,
                           textInputAction: TextInputAction.search,
                           onSubmitted: (_) => _searchMapLocation(),
                           decoration: InputDecoration(
-                            hintText: 'Search map (e.g. UTM)...',
+                            hintText: 'Search map...',
                             border: InputBorder.none,
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            suffixIcon: IconButton(
-                              icon: _isMapLoading 
-                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                                : const Icon(Icons.search),
-                              onPressed: _searchMapLocation,
-                            ),
+                            suffixIcon: IconButton(icon: _isMapLoading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search), onPressed: _searchMapLocation),
                           ),
                         ),
                       ),
                     ),
                     if (_detectedMapAddress != null)
                       Positioned(
-                        bottom: 10,
-                        left: 10,
-                        right: 10,
+                        bottom: 10, left: 10, right: 10,
                         child: GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _locationController.text = _detectedMapAddress!;
-                              _detectedMapAddress = null;
-                            });
-                          },
+                          onTap: () { setState(() { _locationController.text = _detectedMapAddress!; _detectedMapAddress = null; }); },
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.blue[600],
-                              borderRadius: BorderRadius.circular(20),
-                            ),
+                            decoration: BoxDecoration(color: Colors.blue[600], borderRadius: BorderRadius.circular(20)),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.copy, color: Colors.white, size: 16),
-                                const SizedBox(width: 8),
-                                Flexible(
-                                  child: Text(
-                                    "Use: $_detectedMapAddress", 
-                                    style: const TextStyle(color: Colors.white, fontSize: 13),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
+                              children: [const Icon(Icons.copy, color: Colors.white, size: 16), const SizedBox(width: 8), Flexible(child: Text("Use: $_detectedMapAddress", style: const TextStyle(color: Colors.white, fontSize: 13), overflow: TextOverflow.ellipsis))],
                             ),
                           ),
                         ),
@@ -511,43 +449,51 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                 ),
               ),
             ),
-            
             const SizedBox(height: 20),
 
-            // --- DATE & TIME SECTION ---
+            // --- DATE & TIME SECTION (UPDATED) ---
             Row(
               children: [
+                // Date Picker
                 Expanded(
                   child: GestureDetector(
-                    onTap: _selectDate, 
+                    onTap: _selectDate,
                     child: AbsorbPointer(
                       child: TextFormField(
-                        decoration: const InputDecoration(
-                          labelText: 'Date', 
-                          prefixIcon: Icon(Icons.calendar_today), 
-                          border: OutlineInputBorder()
-                        ),
-                        controller: TextEditingController(
-                          text: '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}'
-                        ),
+                        decoration: const InputDecoration(labelText: 'Date', prefixIcon: Icon(Icons.calendar_today), border: OutlineInputBorder()),
+                        controller: TextEditingController(text: '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}'),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // Start & End Time Pickers (Side by Side)
+            Row(
+              children: [
+                // Start Time
+                Expanded(
+                  child: GestureDetector(
+                    onTap: _selectStartTime,
+                    child: AbsorbPointer(
+                      child: TextFormField(
+                        decoration: const InputDecoration(labelText: 'Start Time', prefixIcon: Icon(Icons.access_time), border: OutlineInputBorder()),
+                        controller: TextEditingController(text: _startTime.format(context)),
                       ),
                     ),
                   ),
                 ),
                 const SizedBox(width: 16),
+                // End Time
                 Expanded(
                   child: GestureDetector(
-                    onTap: _selectTime,
+                    onTap: _selectEndTime,
                     child: AbsorbPointer(
                       child: TextFormField(
-                        decoration: const InputDecoration(
-                          labelText: 'Time', 
-                          prefixIcon: Icon(Icons.access_time), 
-                          border: OutlineInputBorder()
-                        ),
-                        controller: TextEditingController(
-                          text: _selectedTime.format(context)
-                        ),
+                        decoration: const InputDecoration(labelText: 'End Time', prefixIcon: Icon(Icons.access_time_filled), border: OutlineInputBorder()),
+                        controller: TextEditingController(text: _endTime.format(context)),
                       ),
                     ),
                   ),
@@ -558,11 +504,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
             const SizedBox(height: 16),
              TextFormField(
               controller: _maxAttendeesController,
-              decoration: const InputDecoration(
-                labelText: 'Max Attendees',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.people),
-              ),
+              decoration: const InputDecoration(labelText: 'Max Attendees', border: OutlineInputBorder(), prefixIcon: Icon(Icons.people)),
               keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 30),

@@ -4,21 +4,14 @@ import '../../models/club.dart';
 import '../../services/storage_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'create_event/create_event_flow.dart';
-import 'dart:io';
 import 'dart:async';
 import '../../services/participant_export_service.dart';
 
 // --- MAP & LOCATION IMPORTS ---
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geocoding/geocoding.dart';
-import 'package:url_launcher/url_launcher.dart'; // Ensure you have this in pubspec.yaml
-
-// --- EXPORT IMPORTS ---
-import 'package:csv/csv.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
+import 'package:url_launcher/url_launcher.dart'; 
+import 'attendance_qr_page.dart';
 
 class ClubEventDetailsScreen extends StatefulWidget {
   final EventModel event;
@@ -199,7 +192,19 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
                     },
                   ),
                 
-                // ... rest of your options (Archive, Duplicate, Delete) ...
+                if (!_isPastEvent && !_isArchived)
+                  _buildOptionTile(
+                    Icons.qr_code_2,
+                    Colors.deepPurple,
+                    'Attendance QR',
+                    'Display code for students to scan',
+                    () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => AttendanceQRPage(event: widget.event)),
+                      );
+                    },
+                  ),
                 _buildOptionTile(
                   _isPublished ? Icons.archive : Icons.unarchive,
                   _isPublished ? Colors.orange : Colors.green,
@@ -207,7 +212,26 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
                   _isPublished ? 'Move to archive list' : 'Make visible to everyone',
                   _toggleArchiveStatus,
                 ),
-                // ... etc
+                
+                // 4. DUPLICATE EVENT (Restored)
+                _buildOptionTile(
+                  Icons.copy,
+                  Colors.teal,
+                  'Duplicate Event',
+                  'Create a copy of this event',
+                  () => _navigateToEdit(isDuplicate: true),
+                ),
+
+                const Divider(height: 32),
+
+                // 5. DELETE EVENT (Restored)
+                _buildOptionTile(
+                  Icons.delete_forever,
+                  Colors.red,
+                  'Delete Event',
+                  'Permanently remove event',
+                  _confirmDelete,
+                ),
               ],
             ),
           ),
