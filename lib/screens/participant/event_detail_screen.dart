@@ -1,24 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // From File 2
+import 'package:firebase_auth/firebase_auth.dart'; 
 import 'dart:io';
-import 'dart:async'; // Required for Completer (File 1)
+import 'dart:async'; 
 
 // --- MODELS ---
 import '../../models/event.dart';
-import '../../models/review.dart'; // From File 2
+import '../../models/review.dart'; 
 
 // --- SERVICES ---
 import '../../services/storage_service.dart';
 import '../../services/registration_service.dart';
 import '../../services/auth_service.dart';
-import '../../services/review_service.dart'; // From File 2
+import '../../services/review_service.dart'; 
 
 // --- SCREENS ---
 import 'report_screen.dart';
 import 'event_registration_screen.dart';
-import 'event_review_screen.dart'; // From File 2
+import 'event_review_screen.dart'; 
 
-// --- MAP IMPORTS (From File 1) ---
+// --- MAP IMPORTS ---
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -39,19 +39,21 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
   // --- SERVICES ---
   final RegistrationService _registrationService = RegistrationService();
   final AuthService _authService = AuthService();
-  final ReviewService _reviewService = ReviewService(); // From File 2
+  final ReviewService _reviewService = ReviewService(); 
 
   // --- STATE VARIABLES ---
   bool _isRegistered = false;
   bool _isCheckingRegistration = true;
+  
+  // --- NEW: Sort State ---
+  String _reviewSortOption = 'Newest'; 
 
-  // --- MAP STATE VARIABLES (From File 1) ---
+  // --- MAP STATE VARIABLES ---
   LatLng? _eventLatLng;
   Set<Marker> _markers = {};
   bool _isMapLoading = true;
   final Completer<GoogleMapController> _mapController = Completer();
 
-  // Simple map style to hide clutter
   final String _mapStyle = '''
   [
     {
@@ -66,14 +68,13 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
   void initState() {
     super.initState();
     _checkRegistrationStatus();
-    _loadEventLocation(); // Initialize map location logic
+    _loadEventLocation(); 
   }
 
   // =========================================================
-  // MAP LOGIC (From File 1)
+  // MAP LOGIC 
   // =========================================================
   void _loadEventLocation() {
-    // 1. Check if we have exact GPS coordinates saved
     if (widget.event.latitude != null && widget.event.longitude != null) {
       final position = LatLng(widget.event.latitude!, widget.event.longitude!);
       
@@ -91,7 +92,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
         });
       }
     } 
-    // 2. Fallback: Try to find address by text if no GPS provided
     else if (widget.event.location.isNotEmpty) {
       _resolveAddressFallback();
     } else {
@@ -120,10 +120,8 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
   Future<void> _launchMapsApp() async {
     if (_eventLatLng == null) return;
-    
     final double lat = _eventLatLng!.latitude;
     final double lng = _eventLatLng!.longitude;
-    
     final Uri googleMapsUrl = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng");
     final Uri appleMapsUrl = Uri.parse("https://maps.apple.com/?q=$lat,$lng");
 
@@ -169,7 +167,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
         });
       }
     } catch (e) {
-      print('Error checking registration status: $e');
       if (mounted) {
         setState(() {
           _isRegistered = false;
@@ -180,7 +177,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
   }
 
   // =========================================================
-  // REVIEW ACTIONS (From File 2)
+  // REVIEW ACTIONS 
   // =========================================================
   void _deleteReview(String reviewId) async {
     try {
@@ -219,7 +216,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
   // WIDGET BUILDER
   // =========================================================
   
-  // Map Widget Helper (From File 1)
   Widget _buildMapSection() {
     if (widget.event.location.isEmpty) return SizedBox.shrink();
 
@@ -281,7 +277,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
   @override
   Widget build(BuildContext context) {
-    // Get current firebase user for Review logic
     final currentUser = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
@@ -427,9 +422,8 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                     ],
                   ),
 
-                  // --- MAP SECTION (From File 1) ---
+                  // --- MAP SECTION ---
                   _buildMapSection(),
-                  // ---------------------------------
 
                   SizedBox(height: 24),
 
@@ -578,10 +572,66 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                   SizedBox(height: 24),
 
                   // ===============================================
-                  // REVIEWS SECTION (From File 2)
+                  // REVIEWS SECTION WITH NICER FILTER UI
                   // ===============================================
-                  Text('Reviews', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red)),
-                  SizedBox(height: 12),
+                  
+                  // --- 1. Header with Nice Filter ---
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Reviews',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red),
+                      ),
+                      // Styled Filter Dropdown
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20), // Pill shape
+                          border: Border.all(color: Colors.grey.shade300),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            )
+                          ],
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _reviewSortOption,
+                            icon: Padding(
+                              padding: const EdgeInsets.only(left: 8.0),
+                              child: Icon(Icons.sort_rounded, color: Colors.grey[700], size: 20),
+                            ),
+                            style: TextStyle(
+                              color: Colors.grey[800], 
+                              fontSize: 14, 
+                              fontWeight: FontWeight.w600
+                            ),
+                            isDense: true,
+                            onChanged: (String? newValue) {
+                              if (newValue != null) {
+                                setState(() {
+                                  _reviewSortOption = newValue;
+                                });
+                              }
+                            },
+                            items: <String>['Newest', 'Oldest', 'Highest Rating', 'Lowest Rating']
+                                .map<DropdownMenuItem<String>>((String value) {
+                              return DropdownMenuItem<String>(
+                                value: value,
+                                child: Text(value),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  
+                  SizedBox(height: 16),
 
                   StreamBuilder<List<ReviewModel>>(
                     stream: _reviewService.getEventReviews(widget.event.id),
@@ -597,7 +647,26 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                         );
                       }
 
-                      final reviews = snapshot.data ?? [];
+                      // 1. Get List
+                      var reviews = List<ReviewModel>.from(snapshot.data ?? []);
+                      
+                      // 2. Sort Logic (Client Side)
+                      switch (_reviewSortOption) {
+                        case 'Oldest':
+                          reviews.sort((a, b) => (a.createdAt ?? DateTime(0)).compareTo(b.createdAt ?? DateTime(0)));
+                          break;
+                        case 'Highest Rating':
+                          reviews.sort((a, b) => b.rating.compareTo(a.rating));
+                          break;
+                        case 'Lowest Rating':
+                          reviews.sort((a, b) => a.rating.compareTo(b.rating));
+                          break;
+                        case 'Newest':
+                        default:
+                          reviews.sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
+                          break;
+                      }
+
                       bool hasUserReviewed = false;
                       if (currentUser != null) {
                         hasUserReviewed = reviews.any((r) => r.userId == currentUser.uid);
@@ -606,7 +675,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // --- SECTION A: Button / Status Message ---
+                          // Status Message
                           if (widget.event.isPast) ...[
                             if (hasUserReviewed)
                               Container(
@@ -658,7 +727,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                             ),
                           ],
 
-                          // --- SECTION B: List of Reviews ---
+                          // List of Reviews
                           if (reviews.isEmpty)
                             Center(child: Padding(padding: const EdgeInsets.symmetric(vertical: 20), child: Text("No reviews yet.", style: TextStyle(color: Colors.grey))))
                           else
@@ -741,7 +810,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     bool isLiked = currentUser != null && review.likedBy.contains(currentUser.uid);
     int likeCount = review.likedBy.length;
 
-    // Safety checks for display
     String avatarLetter = (review.userName.isNotEmpty) 
         ? review.userName[0].toUpperCase() 
         : '?';
@@ -755,7 +823,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Header: Name, Date, Menu
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -781,7 +848,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                    ),
                 ],
               ),
-              // Menu Logic
               PopupMenuButton(
                 icon: Icon(Icons.more_horiz, color: Colors.grey),
                 onSelected: (value) {
@@ -807,7 +873,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
           SizedBox(height: 4),
 
-          // 2. Rating
           Row(
             children: List.generate(5, (index) {
               return Icon(
@@ -820,12 +885,10 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
           SizedBox(height: 8),
 
-          // 3. Comment + Edited status
           Text(review.comment),
           if (review.isEdited) 
             Text("(edited)", style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic)),
 
-          // 4. Photos
           if (review.photoUrls.isNotEmpty) ...[
             SizedBox(height: 8),
             SizedBox(
@@ -855,10 +918,8 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
           SizedBox(height: 12),
 
-          // 5. Action Row: Like & Reply
           Row(
             children: [
-               // LIKE
                InkWell(
                   onTap: () => _reviewService.toggleLikeReview(review.id!),
                   child: Row(
@@ -871,7 +932,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                 ),
                 SizedBox(width: 20),
                 
-                // REPLY (UPDATED)
                 InkWell(
                   onTap: () => showModalBottomSheet(
                     context: context, 
@@ -881,7 +941,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                   child: StreamBuilder<List<ReplyModel>>(
                     stream: _reviewService.getReplies(review.id!),
                     builder: (context, snapshot) {
-                      // Determine label: "Reply" if 0, or "5" if > 0
                       String label = "Reply";
                       if (snapshot.hasData && snapshot.data!.isNotEmpty) {
                         label = snapshot.data!.length.toString();
@@ -913,16 +972,12 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
           children: const [
             Icon(Icons.event, size: 40, color: Colors.grey),
             SizedBox(height: 8),
-            Text(
-              'No image',
-              style: TextStyle(color: Colors.grey),
-            ),
+            Text('No image', style: TextStyle(color: Colors.grey)),
           ],
         ),
       );
     }
 
-    // If the URL is a local file path
     if (imageUrl.startsWith('/')) {
       return Image.file(
         File(imageUrl),
@@ -933,7 +988,6 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
       );
     }
 
-    // For network or storage images
     final storageService = StorageService();
     return FutureBuilder<String?>(
       future: storageService.resolveImageUrl(imageUrl),
@@ -993,10 +1047,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
         children: const [
           Icon(Icons.broken_image, size: 40, color: Colors.grey),
           SizedBox(height: 8),
-          Text(
-            'Image not available',
-            style: TextStyle(color: Colors.grey),
-          ),
+          Text('Image not available', style: TextStyle(color: Colors.grey)),
         ],
       ),
     );
@@ -1020,13 +1071,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
           children: [
             Icon(icon, size: 32, color: color),
             SizedBox(height: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ),
-            ),
+            Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
             SizedBox(height: 4),
             Text(
               value,
@@ -1046,7 +1091,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 }
 
 // ==========================================
-// IMPROVED REPLY BOTTOM SHEET (From File 2)
+// REPLY BOTTOM SHEET (Standard UI)
 // ==========================================
 class ReplyBottomSheet extends StatefulWidget {
   final String reviewId;
@@ -1058,11 +1103,11 @@ class ReplyBottomSheet extends StatefulWidget {
 
 class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
   final TextEditingController _ctrl = TextEditingController();
-  final FocusNode _focusNode = FocusNode(); // Added for auto-focus
+  final FocusNode _focusNode = FocusNode(); 
   final ReviewService _service = ReviewService();
   final String _myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
   
-  String? _replyingToUser; // Track who we are replying to
+  String? _replyingToUser; 
 
   @override
   void dispose() {
@@ -1073,10 +1118,7 @@ class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
 
   void _send() {
     if (_ctrl.text.trim().isEmpty) return;
-    
-    // The service handles the database logic
     _service.addReply(widget.reviewId, _ctrl.text.trim());
-    
     _ctrl.clear();
     setState(() {
       _replyingToUser = null;
@@ -1086,30 +1128,22 @@ class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
 
   void _delete(String replyId) => _service.deleteReply(widget.reviewId, replyId);
 
-  // Triggered when user clicks "Reply" on someone's comment
   void _startReplyToUser(String userName) {
     setState(() {
       _replyingToUser = userName;
     });
-    
-    // Pre-fill text with mention
     String mention = "@$userName ";
     _ctrl.text = mention;
-    
-    // Move cursor to end
     _ctrl.selection = TextSelection.fromPosition(TextPosition(offset: _ctrl.text.length));
-    
-    // Open keyboard
     FocusScope.of(context).requestFocus(_focusNode);
   }
 
   @override
   Widget build(BuildContext context) {
-    // Calculate height to avoid keyboard covering input
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
-        height: MediaQuery.of(context).size.height * 0.75, // Slightly taller
+        height: MediaQuery.of(context).size.height * 0.75, 
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -1168,8 +1202,6 @@ class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
                     itemBuilder: (_, i) {
                       final r = replies[i];
                       bool isMe = r.userId == _myUid;
-
-                      // Safety Check for Name/Avatar
                       String replyName = r.userName.isNotEmpty ? r.userName : 'Anonymous';
                       String replyAvatar = replyName.isNotEmpty ? replyName[0].toUpperCase() : '?';
 
@@ -1178,15 +1210,12 @@ class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Avatar
                             CircleAvatar(
                               radius: 16,
                               backgroundColor: Colors.blue[50],
                               child: Text(replyAvatar, style: TextStyle(fontSize: 14, color: Colors.blue, fontWeight: FontWeight.bold)),
                             ),
                             SizedBox(width: 12),
-                            
-                            // Content Column
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1199,13 +1228,8 @@ class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
                                     ],
                                   ),
                                   SizedBox(height: 4),
-                                  Text(
-                                    r.content, 
-                                    style: TextStyle(fontSize: 14, color: Colors.black87),
-                                  ),
+                                  Text(r.content, style: TextStyle(fontSize: 14, color: Colors.black87)),
                                   SizedBox(height: 6),
-                                  
-                                  // Interaction Row (Reply button)
                                   Row(
                                     children: [
                                       GestureDetector(
@@ -1244,7 +1268,6 @@ class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
               padding: EdgeInsets.only(left: 16, right: 16, bottom: 16, top: 12),
               child: Column(
                 children: [
-                  // Banner showing who we are replying to
                   if (_replyingToUser != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8.0),
@@ -1266,7 +1289,6 @@ class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
                       ),
                     ),
                   
-                  // Text Field
                   Row(
                     children: [
                       Expanded(
@@ -1284,7 +1306,7 @@ class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
                               contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                               isDense: true,
                             ),
-                            maxLines: null, // Allow expanding
+                            maxLines: null, 
                             textCapitalization: TextCapitalization.sentences,
                           ),
                         ),
