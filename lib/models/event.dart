@@ -32,9 +32,9 @@ class EventModel {
   final List<String> tags;
   final String contactEmail;
   final String contactPhone;
-  final bool refundEnabled;          // Can users request a refund?
-  final int refundDeadlineDays;      // How many days before event? (e.g. 3)
-  final String refundMethodDetails;  // Instructions (e.g. "Bank Transfer to...")
+  final bool refundEnabled;          
+  final int refundDeadlineDays;
+  final String refundMethodDetails; 
 
   EventModel({
     required this.id,
@@ -115,10 +115,11 @@ class EventModel {
       tags: List<String>.from(data['tags'] ?? []),
       contactEmail: data['contactEmail'] ?? '',
       contactPhone: data['contactPhone'] ?? '',
+      refundEnabled: data['refundEnabled'] ?? false,
+      refundDeadlineDays: data['refundDeadlineDays'] ?? 0,
+      refundMethodDetails: data['refundMethodDetails'] ?? '',
     );
   }
-
-
   Map<String, dynamic> toFirestore() {
     dynamic _convertToTimestamp(DateTime? dateTime) {
       if (dateTime == null) return FieldValue.serverTimestamp();
@@ -179,8 +180,6 @@ class EventModel {
       endTime: json['endTime'] ?? '',
       bannerUrl: json['bannerUrl'],
       location: json['location'],
-      latitude: json['latitude']?.toDouble(),
-      longitude: json['longitude']?.toDouble(),
       clubId: json['clubId'],
       clubName: json['clubName'],
       clubImageUrl: json['clubImageUrl'],
@@ -204,6 +203,9 @@ class EventModel {
       contactPhone: json['contactPhone'] ?? '',
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
+      refundEnabled: json['refundEnabled'] ?? false,
+      refundDeadlineDays: json['refundDeadlineDays'] ?? 0,
+      refundMethodDetails: json['refundMethodDetails'] ?? '',
     );
   }
 
@@ -217,8 +219,6 @@ class EventModel {
       'endTime': endTime,
       'bannerUrl': bannerUrl,
       'location': location,
-      'latitude': latitude,
-      'longitude': longitude,
       'clubId': clubId,
       'clubName': clubName,
       'clubImageUrl': clubImageUrl,
@@ -242,6 +242,9 @@ class EventModel {
       'contactPhone': contactPhone,
       'latitude': latitude,
       'longitude': longitude,
+      'refundEnabled': refundEnabled,
+      'refundDeadlineDays': refundDeadlineDays,
+      'refundMethodDetails': refundMethodDetails,
     };
   }
 
