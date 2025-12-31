@@ -13,6 +13,11 @@ import 'package:geocoding/geocoding.dart';
 import 'package:url_launcher/url_launcher.dart'; 
 import 'attendance_qr_page.dart';
 
+// --- REVIEW IMPORTS ---
+import '../../models/review.dart';
+import '../../services/review_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 class ClubEventDetailsScreen extends StatefulWidget {
   final EventModel event;
   final Club club;
@@ -25,6 +30,7 @@ class ClubEventDetailsScreen extends StatefulWidget {
 
 class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
   bool _isLoading = false;
+  final ReviewService _reviewService = ReviewService(); // Service for managing reviews
 
   // --- MAP STATE VARIABLES ---
   LatLng? _eventLatLng;
@@ -135,6 +141,34 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
   void _showExportOptions() {
     ParticipantExportService.showExportOptions(context, widget.event);
   }
+
+  // --- REVIEW ACTIONS ---
+  void _deleteReview(String reviewId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text("Delete Review"),
+        content: Text("Are you sure you want to remove this review? This cannot be undone."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true), 
+            child: Text("Delete", style: TextStyle(color: Colors.red))
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await _reviewService.deleteReview(reviewId);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Review deleted")));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to delete: $e")));
+      }
+    }
+  }
+
   // --- MANAGEMENT OPTIONS ---
   void _showManagementOptions() {
     // Check our new logic
@@ -438,6 +472,163 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
     );
   }
 
+  // --- ADMIN REVIEW SECTION BUILDER ---
+  Widget _buildReviewsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text("Reviews & Feedback", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        SizedBox(height: 12),
+        StreamBuilder<List<ReviewModel>>(
+          stream: _reviewService.getEventReviews(widget.event.id),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Text("Error loading reviews", style: TextStyle(color: Colors.red));
+            }
+            
+            final reviews = snapshot.data ?? [];
+            if (reviews.isEmpty) {
+              return Container(
+                padding: EdgeInsets.all(16),
+                width: double.infinity,
+                decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
+                child: Center(child: Text("No reviews yet.", style: TextStyle(color: Colors.grey[600]))),
+              );
+            }
+
+            return ListView.separated(
+              shrinkWrap: true,
+              physics: NeverScrollableScrollPhysics(),
+              itemCount: reviews.length,
+              separatorBuilder: (c, i) => Divider(),
+              itemBuilder: (context, index) {
+                return _buildAdminReviewItem(reviews[index]);
+              },
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAdminReviewItem(ReviewModel review) {
+    String avatarLetter = review.userName.isNotEmpty ? review.userName[0].toUpperCase() : '?';
+    
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 16, 
+                backgroundColor: Colors.blue[100],
+                child: Text(avatarLetter, style: TextStyle(color: Colors.blue[800], fontWeight: FontWeight.bold)),
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(review.userName, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    Text(
+                      review.createdAt != null 
+                        ? "${review.createdAt!.day}/${review.createdAt!.month}/${review.createdAt!.year}" 
+                        : "Unknown date",
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              // Rating
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(color: Colors.amber[50], borderRadius: BorderRadius.circular(4)),
+                child: Row(
+                  children: [
+                    Icon(Icons.star, size: 14, color: Colors.amber),
+                    SizedBox(width: 4),
+                    Text(review.rating.toString(), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          
+          SizedBox(height: 8),
+          Text(review.comment),
+          
+          // Photos
+          if (review.photoUrls.isNotEmpty) ...[
+            SizedBox(height: 8),
+            SizedBox(
+              height: 60,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: review.photoUrls.length,
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.network(review.photoUrls[index], width: 60, height: 60, fit: BoxFit.cover),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+
+          SizedBox(height: 12),
+          
+          // Admin Actions
+          Row(
+            children: [
+              // Reply Button
+              InkWell(
+                onTap: () => showModalBottomSheet(
+                  context: context, 
+                  isScrollControlled: true,
+                  builder: (_) => ReplyBottomSheet(reviewId: review.id!)
+                ),
+                child: StreamBuilder<List<ReplyModel>>(
+                  stream: _reviewService.getReplies(review.id!),
+                  builder: (context, snapshot) {
+                    int count = snapshot.data?.length ?? 0;
+                    return Row(
+                      children: [
+                        Icon(Icons.reply, size: 18, color: Colors.blue),
+                        SizedBox(width: 4),
+                        Text(count > 0 ? "Replies ($count)" : "Reply", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 13)),
+                      ],
+                    );
+                  }
+                ),
+              ),
+              Spacer(),
+              // Delete Button
+              InkWell(
+                onTap: () => _deleteReview(review.id!),
+                child: Row(
+                  children: const [
+                    Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                    SizedBox(width: 4),
+                    Text("Delete", style: TextStyle(color: Colors.red, fontSize: 13)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -513,10 +704,9 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
                         ],
                       ),
 
-                      // --- NEW: Map Section ---
+                      // --- Map Section ---
                       SizedBox(height: 24),
                       _buildMapSection(),
-                      // -------------------------
 
                       SizedBox(height: 32),
                       Text("Participant Management", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -534,6 +724,12 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
                           ),
                         ),
                       ),
+                      
+                      // --- NEW: REVIEWS SECTION ---
+                      SizedBox(height: 32),
+                      _buildReviewsSection(),
+                      // ----------------------------
+                      
                       SizedBox(height: 40),
                     ],
                   ),
@@ -541,6 +737,244 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
               ],
             ),
           ),
+    );
+  }
+}
+
+// ==========================================
+// REUSED REPLY BOTTOM SHEET CLASS
+// ==========================================
+class ReplyBottomSheet extends StatefulWidget {
+  final String reviewId;
+  const ReplyBottomSheet({super.key, required this.reviewId});
+
+  @override
+  State<ReplyBottomSheet> createState() => _ReplyBottomSheetState();
+}
+
+class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
+  final TextEditingController _ctrl = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  final ReviewService _service = ReviewService();
+  final String _myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+  
+  String? _replyingToUser;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _send() {
+    if (_ctrl.text.trim().isEmpty) return;
+    _service.addReply(widget.reviewId, _ctrl.text.trim());
+    _ctrl.clear();
+    setState(() {
+      _replyingToUser = null;
+    });
+    FocusScope.of(context).unfocus();
+  }
+
+  void _delete(String replyId) => _service.deleteReply(widget.reviewId, replyId);
+
+  void _startReplyToUser(String userName) {
+    setState(() {
+      _replyingToUser = userName;
+    });
+    String mention = "@$userName ";
+    _ctrl.text = mention;
+    _ctrl.selection = TextSelection.fromPosition(TextPosition(offset: _ctrl.text.length));
+    FocusScope.of(context).requestFocus(_focusNode);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.75,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+              ),
+              child: Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300], 
+                    borderRadius: BorderRadius.circular(2)
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12.0),
+              child: Text("Replies", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ),
+
+            Expanded(
+              child: StreamBuilder<List<ReplyModel>>(
+                stream: _service.getReplies(widget.reviewId),
+                builder: (context, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return Center(child: CircularProgressIndicator());
+                  }
+                  
+                  final replies = snap.data ?? [];
+                  
+                  if (replies.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.chat_bubble_outline, size: 48, color: Colors.grey[300]),
+                          SizedBox(height: 12),
+                          Text("No replies yet.", style: TextStyle(color: Colors.grey)),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return ListView.builder(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    itemCount: replies.length,
+                    itemBuilder: (_, i) {
+                      final r = replies[i];
+                      bool isMe = r.userId == _myUid;
+                      String replyName = r.userName.isNotEmpty ? r.userName : 'Anonymous';
+                      String replyAvatar = replyName.isNotEmpty ? replyName[0].toUpperCase() : '?';
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 16.0),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CircleAvatar(
+                              radius: 16,
+                              backgroundColor: Colors.blue[50],
+                              child: Text(replyAvatar, style: TextStyle(fontSize: 14, color: Colors.blue, fontWeight: FontWeight.bold)),
+                            ),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(replyName, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey[800])),
+                                      if (isMe) 
+                                        Text(" (You)", style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                    ],
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(r.content, style: TextStyle(fontSize: 14, color: Colors.black87)),
+                                  SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      GestureDetector(
+                                        onTap: () => _startReplyToUser(replyName),
+                                        child: Text("Reply", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600])),
+                                      ),
+                                      if (isMe) ...[
+                                        SizedBox(width: 16),
+                                        GestureDetector(
+                                          onTap: () => _delete(r.id),
+                                          child: Text("Delete", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.red[300])),
+                                        ),
+                                      ]
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: Offset(0, -5))
+                ],
+              ),
+              padding: EdgeInsets.only(left: 16, right: 16, bottom: 16, top: 12),
+              child: Column(
+                children: [
+                  if (_replyingToUser != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Row(
+                        children: [
+                          Text("Replying to ", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                          Text("@$_replyingToUser", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                          Spacer(),
+                          GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _replyingToUser = null;
+                                _ctrl.clear();
+                              });
+                            },
+                            child: Icon(Icons.close, size: 16, color: Colors.grey),
+                          )
+                        ],
+                      ),
+                    ),
+                  
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          child: TextField(
+                            controller: _ctrl,
+                            focusNode: _focusNode,
+                            decoration: InputDecoration(
+                              hintText: _replyingToUser != null ? "Reply to $_replyingToUser..." : "Add a reply...",
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              isDense: true,
+                            ),
+                            maxLines: null, 
+                            textCapitalization: TextCapitalization.sentences,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      GestureDetector(
+                        onTap: _send,
+                        child: CircleAvatar(
+                          radius: 20,
+                          backgroundColor: Colors.red,
+                          child: Icon(Icons.arrow_upward, color: Colors.white, size: 20),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

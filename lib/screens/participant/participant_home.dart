@@ -32,20 +32,6 @@ class _ParticipantHomeScreenState extends State<ParticipantHomeScreen> {
         ],
       ),
       body: _screens[_currentIndex],
-      
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const QRScannerPage()),
-          );
-        },
-        icon: const Icon(Icons.qr_code_scanner),
-        label: const Text("Scan Attendance"),
-        backgroundColor: Colors.blue, 
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      // ---------------------------------------------
 
       bottomNavigationBar: RoleBasedBottomNav(
         selectedIndex: _currentIndex,
