@@ -24,13 +24,6 @@ class _ParticipantHomeScreenState extends State<ParticipantHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Event Discovery'),
-        actions: [
-          IconButton(icon: const Icon(Icons.search), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.notifications), onPressed: () {}),
-        ],
-      ),
       body: _screens[_currentIndex],
 
       bottomNavigationBar: RoleBasedBottomNav(
