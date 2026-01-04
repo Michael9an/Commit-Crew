@@ -1,6 +1,7 @@
 // main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
 import 'services/firebase_init.dart';
@@ -11,14 +12,19 @@ import 'screens/shared/clubs_screen.dart';
 import 'screens/shared/profile_screen.dart';
 import 'screens/shared/login_screen.dart';
 import 'utils/theme.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 
 void main() async {
   // Ensure Flutter bindings are initialized
   WidgetsFlutterBinding.ensureInitialized();
 
+  // --- 1. INITIALIZE FIREBASE FIRST ---
+  // You must do this before using ANY Firebase feature (like App Check)
+  await Firebase.initializeApp(); 
+  // ------------------------------------
+
   // Install global Flutter error handler so uncaught framework errors are logged
   FlutterError.onError = (FlutterErrorDetails details) {
-    // Print to console and also forward to default handler which logs in debug
     FlutterError.presentError(details);
   };
 
@@ -28,6 +34,13 @@ void main() async {
     print('Stack: $stack');
     return true; // handled
   };
+
+  // --- 2. NOW ACTIVATE APP CHECK ---
+  await FirebaseAppCheck.instance.activate(
+    // This tells the app: "If I am on a phone, use the Debug provider"
+    androidProvider: AndroidProvider.debug,
+    appleProvider: AppleProvider.debug,
+  );
 
   // Run the app
   runApp(const MyApp());

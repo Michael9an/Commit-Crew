@@ -37,41 +37,52 @@ class _TicketScannerPageState extends State<TicketScannerPage> {
   }
 
   Future<void> _processTicket(String qrData) async {
-    // Expected Format: "EVENTID_USERID"
-    // Example: "evt123_user456"
+    // Expected QR Format: "EVENTID_USERID"
     
-    // 1. Basic Validation
-    if (!qrData.contains('_')) {
-      _showResultDialog(false, "Invalid Format", "This is not a valid ticket.");
+    final String expectedPrefix = "${widget.event.id}_";
+
+    // 1. Validate Event ID
+    if (!qrData.startsWith(expectedPrefix)) {
+      _showResultDialog(false, "Wrong Event", "This ticket is for a different event.");
       return;
     }
 
-    final parts = qrData.split('_');
-    final ticketEventId = parts[0];
-    final ticketUserId = parts.sublist(1).join('_'); // Join back in case userId has underscores
+    // 2. Extract User ID
+    final String ticketUserId = qrData.substring(expectedPrefix.length);
 
-    if (ticketEventId != widget.event.id) {
-      _showResultDialog(false, "Wrong Event", "This ticket is for a different event.");
+    if (ticketUserId.isEmpty) {
+      _showResultDialog(false, "Invalid Code", "User ID not found in QR.");
       return;
     }
 
     try {
       final firestore = FirebaseFirestore.instance;
-      // Note: Adjust 'registrations' to match your actual collection name (e.g., 'event_registrations' or subcollection)
-      // Assuming structure: registrations/{eventId_userId}
-      final docRef = firestore.collection('registrations').doc('${widget.event.id}_$ticketUserId');
-      final doc = await docRef.get();
+      
+      // --- CRITICAL FIX START ---
+      // Instead of guessing the Doc ID (which has a timestamp),
+      // We SEARCH for the ticket belonging to this user and event.
+      
+      final querySnapshot = await firestore
+          .collection('registers') // Ensure this matches your DB collection
+          .where('eventId', isEqualTo: widget.event.id)
+          .where('userId', isEqualTo: ticketUserId)
+          .limit(1) // We only need one valid ticket
+          .get();
 
-      if (!doc.exists) {
+      if (querySnapshot.docs.isEmpty) {
         _showResultDialog(false, "Not Found", "No registration found for this user.");
         return;
       }
 
-      final data = doc.data()!;
+      // Get the actual document found
+      final doc = querySnapshot.docs.first;
+      final docRef = doc.reference;
+      final data = doc.data();
+      // --- CRITICAL FIX END ---
+
       final status = data['status'] ?? 'registered';
 
       if (status == 'attended') {
-        // Already checked in
         _showResultDialog(false, "Already Used", "This ticket has already been scanned.", isWarning: true);
       } else if (status == 'cancelled') {
         _showResultDialog(false, "Cancelled", "This ticket is no longer valid.");
@@ -80,15 +91,19 @@ class _TicketScannerPageState extends State<TicketScannerPage> {
         await docRef.update({
           'status': 'attended',
           'checkInTime': FieldValue.serverTimestamp(),
-          'scannedBy': 'volunteer', // Optional auditing
+          'scannedBy': 'volunteer', 
         });
         
         setState(() => _scannedCount++);
-        _showResultDialog(true, "Verified!", "Welcome ${data['userName'] ?? 'Participant'}");
+        
+        // Show Success Name
+        final participantName = data['fullName'] ?? 'Participant';
+        _showResultDialog(true, "Verified!", "Welcome $participantName");
       }
 
     } catch (e) {
-      _showResultDialog(false, "Error", "Database error: $e");
+      print("Scan Error: $e"); // Helpful for debugging
+      _showResultDialog(false, "Error", "Database error. Check permissions.");
     }
   }
 
@@ -117,7 +132,7 @@ class _TicketScannerPageState extends State<TicketScannerPage> {
             child: ElevatedButton(
               onPressed: () {
                 Navigator.pop(context);
-                // Delay slightly to prevent double-scanning the same code instantly
+                // Delay to prevent double-scanning
                 Future.delayed(const Duration(seconds: 2), () {
                   if (mounted) setState(() => _isProcessing = false);
                 });
