@@ -7,6 +7,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../models/event.dart';
 import '../../../services/storage_service.dart';
+import 'location_picker_page.dart';
 
 class EventDetailsPage extends StatefulWidget {
   final EventModel eventData;
@@ -30,6 +31,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   final _locationController = TextEditingController();
   final _maxAttendeesController = TextEditingController();
   final _mapSearchController = TextEditingController();
+  final _scannerPinController = TextEditingController(); // NEW: PIN Controller
 
   final ImagePicker _picker = ImagePicker();
   late EventModel _localEvent;
@@ -40,11 +42,10 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   String? _detectedMapAddress;
   bool _isMapLoading = false;
   Timer? _debounceTimer;
+  Set<Marker> _markers = {};
 
   // Date/Time Variables
   DateTime _selectedDate = DateTime.now();
-  
-  // --- UPDATED: Start and End Time ---
   TimeOfDay _startTime = const TimeOfDay(hour: 9, minute: 0);
   TimeOfDay _endTime = const TimeOfDay(hour: 17, minute: 0);
 
@@ -54,6 +55,8 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     'General', 'Technology', 'Sports', 'Music', 'Arts', 
     'Business', 'Education', 'Social', 'Workshop', 'Gaming', 'Health'
   ];
+
+  String _checkInMethod = 'self_scan'; 
 
   final String _mapStyle = '''
   [
@@ -69,18 +72,27 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   void initState() {
     super.initState();
     _localEvent = widget.eventData;
+    _initializeControllers();
+    _determineUserLocation();
+  }
+
+  void _initializeControllers() {
     _nameController.text = _localEvent.name;
     _descriptionController.text = _localEvent.description;
     _locationController.text = _localEvent.location;
-    _maxAttendeesController.text = _localEvent.maxAttendees.toString();
+    _maxAttendeesController.text = _localEvent.maxAttendees > 0 ? _localEvent.maxAttendees.toString() : '';
+    _scannerPinController.text = _localEvent.scannerPin ?? ''; // Load PIN
     
     if (_localEvent.category.isNotEmpty && _categories.contains(_localEvent.category)) {
       _selectedCategory = _localEvent.category;
     }
 
-    // --- LOAD DATE & TIMES ---
-    if (_localEvent.date != null) {
-      final timestamp = int.tryParse(_localEvent.date!);
+    if (_localEvent.checkInMethod.isNotEmpty) {
+      _checkInMethod = _localEvent.checkInMethod;
+    }
+
+    if (_localEvent.date.isNotEmpty) {
+      final timestamp = int.tryParse(_localEvent.date);
       if (timestamp != null) {
         _selectedDate = DateTime.fromMillisecondsSinceEpoch(timestamp);
       }
@@ -94,10 +106,12 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
       _endTime = _parseTime(_localEvent.endTime);
     }
 
-    _determineUserLocation();
+    if (_localEvent.latitude != null && _localEvent.longitude != null) {
+      _currentMapPosition = LatLng(_localEvent.latitude!, _localEvent.longitude!);
+      _markers.add(Marker(markerId: const MarkerId('selected'), position: _currentMapPosition));
+    }
   }
 
-  // Helper to parse "HH:mm" string back to TimeOfDay
   TimeOfDay _parseTime(String timeStr) {
     try {
       final parts = timeStr.split(':');
@@ -107,14 +121,12 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     }
   }
 
-  // 1. Force 24-hour format "HH:mm" to ensure consistency
   String _formatTimeForDB(TimeOfDay time) {
     final String hour = time.hour.toString().padLeft(2, '0');
     final String minute = time.minute.toString().padLeft(2, '0');
     return '$hour:$minute';
   }
 
-  // --- TIME PICKERS ---
   Future<void> _selectDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -143,13 +155,10 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
       initialTime: _endTime,
     );
     if (picked != null) {
-      // Basic validation: End time should be after start time? 
-      // (Optional: You can add a check here)
       setState(() => _endTime = picked);
     }
   }
 
-  // --- MAP LOGIC ---
   Future<void> _determineUserLocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return;
@@ -189,6 +198,11 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         
         final controller = await _mapController.future;
         if (mounted) controller.animateCamera(CameraUpdate.newLatLngZoom(target, 16));
+        
+        setState(() {
+          _currentMapPosition = target;
+          _markers = {Marker(markerId: const MarkerId('selected'), position: target)};
+        });
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Location not found")));
       }
@@ -231,6 +245,19 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     });
   }
 
+  void _openLocationPicker() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const LocationPickerPage()),
+    );
+
+    if (result != null && result is String) {
+       setState(() {
+        _locationController.text = result;
+      });
+    }
+  }
+
   Future<void> _pickImage() async {
      try {
       final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
@@ -245,7 +272,6 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     }
   }
 
-  // 2. In _saveAndContinue, use this helper explicitly
   void _saveAndContinue() {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
@@ -255,6 +281,16 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         _startTime.hour, _startTime.minute,
       );
       
+      // Save Scanner PIN logic
+      String? pin;
+      if (_checkInMethod == 'organizer_scan') {
+        pin = _scannerPinController.text.trim();
+        if (pin.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please set a PIN for the scanners')));
+          return;
+        }
+      }
+
       _localEvent = _localEvent.copyWith(
         date: combinedDateTime.millisecondsSinceEpoch.toString(),
         startTime: _formatTimeForDB(_startTime),
@@ -266,6 +302,8 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         latitude: _currentMapPosition.latitude,
         longitude: _currentMapPosition.longitude,
         category: _selectedCategory,
+        checkInMethod: _checkInMethod,
+        scannerPin: pin, // Save the PIN
       );
 
       widget.onNext(_localEvent);
@@ -406,9 +444,13 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                       myLocationButtonEnabled: false,
                       zoomControlsEnabled: false,
                       mapToolbarEnabled: false,
-                      onMapCreated: (c) { _mapController.complete(c); c.setMapStyle(_mapStyle); },
+                      onMapCreated: (c) { 
+                        if (!_mapController.isCompleted) _mapController.complete(c); 
+                        c.setMapStyle(_mapStyle); 
+                      },
                       onCameraMove: _onCameraMove,
                       onCameraIdle: _onCameraIdle,
+                      markers: _markers, 
                     ),
                     const Center(child: Padding(padding: EdgeInsets.only(bottom: 35), child: Icon(Icons.location_on, size: 45, color: Colors.red))),
                     Positioned(
@@ -451,10 +493,9 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
             ),
             const SizedBox(height: 20),
 
-            // --- DATE & TIME SECTION (UPDATED) ---
+            // Date & Time
             Row(
               children: [
-                // Date Picker
                 Expanded(
                   child: GestureDetector(
                     onTap: _selectDate,
@@ -469,11 +510,8 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               ],
             ),
             const SizedBox(height: 16),
-            
-            // Start & End Time Pickers (Side by Side)
             Row(
               children: [
-                // Start Time
                 Expanded(
                   child: GestureDetector(
                     onTap: _selectStartTime,
@@ -486,7 +524,6 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                // End Time
                 Expanded(
                   child: GestureDetector(
                     onTap: _selectEndTime,
@@ -507,6 +544,50 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               decoration: const InputDecoration(labelText: 'Max Attendees', border: OutlineInputBorder(), prefixIcon: Icon(Icons.people)),
               keyboardType: TextInputType.number,
             ),
+            
+            const SizedBox(height: 16),
+
+            // --- CHECK-IN METHOD SELECTION ---
+            DropdownButtonFormField<String>(
+              value: _checkInMethod,
+              decoration: const InputDecoration(
+                labelText: 'Check-in Method',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.qr_code_scanner),
+                helperText: 'Choose who scans the QR code',
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'self_scan', 
+                  child: Text('User scans Event QR (Self Check-in)')
+                ),
+                DropdownMenuItem(
+                  value: 'organizer_scan', 
+                  child: Text('Organizer scans User Ticket')
+                ),
+              ],
+              onChanged: (val) {
+                if (val != null) setState(() => _checkInMethod = val);
+              },
+            ),
+            
+            // --- OPTION B: SCANNER PIN (Visible only if Organizer Scan) ---
+            if (_checkInMethod == 'organizer_scan') ...[
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _scannerPinController,
+                decoration: const InputDecoration(
+                  labelText: 'Scanner Pass PIN',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock),
+                  helperText: 'Share this PIN with volunteers to access the scanner.',
+                ),
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+              ),
+            ],
+            // -----------------------------------------------------------
+
             const SizedBox(height: 30),
 
             ElevatedButton(
@@ -528,6 +609,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     _locationController.dispose();
     _maxAttendeesController.dispose();
     _mapSearchController.dispose();
+    _scannerPinController.dispose();
     _debounceTimer?.cancel();
     super.dispose();
   }

@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ReviewModel {
-  final String? id; // Document ID
+  final String? id;
   final String eventId;
   final String userId;
   final String userName;
@@ -9,10 +9,8 @@ class ReviewModel {
   final String comment;
   final List<String> photoUrls;
   final DateTime? createdAt;
-  
-  // NEW FEATURES
   final bool isEdited; 
-  final List<String> likedBy; // List of user IDs who liked this review
+  final List<String> likedBy;
 
   ReviewModel({
     this.id,
@@ -62,11 +60,13 @@ class ReviewModel {
   }
 }
 
-// NEW: Reply Model
+// --- UPDATED REPLY MODEL ---
 class ReplyModel {
   final String id;
   final String userId;
   final String userName;
+  final String? userAvatarUrl; // Stores Club Logo
+  final bool isClubRep;        // Flags if this is an "Author" reply
   final String content;
   final DateTime? createdAt;
 
@@ -74,6 +74,8 @@ class ReplyModel {
     required this.id,
     required this.userId,
     required this.userName,
+    this.userAvatarUrl,
+    this.isClubRep = false,
     required this.content,
     this.createdAt,
   });
@@ -82,6 +84,8 @@ class ReplyModel {
     return {
       'userId': userId,
       'userName': userName,
+      'userAvatarUrl': userAvatarUrl, 
+      'isClubRep': isClubRep,
       'content': content,
       'createdAt': FieldValue.serverTimestamp(),
     };
@@ -92,8 +96,12 @@ class ReplyModel {
       id: id,
       userId: data['userId'] ?? '',
       userName: data['userName'] ?? 'Anonymous',
+      userAvatarUrl: data['userAvatarUrl'],
+      isClubRep: data['isClubRep'] ?? false,
       content: data['content'] ?? '',
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      createdAt: data['createdAt'] is Timestamp 
+          ? (data['createdAt'] as Timestamp).toDate() 
+          : null,
     );
   }
 }

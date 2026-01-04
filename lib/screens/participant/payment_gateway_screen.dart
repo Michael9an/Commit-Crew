@@ -1,6 +1,10 @@
+// Updated
+
 import 'package:flutter/material.dart';
+import 'package:flutter_stripe/flutter_stripe.dart'hide Card;
 import '../../models/event.dart';
 import '../../services/registration_service.dart';
+import '../../services/stripe_service.dart';
 
 class PaymentGatewayScreen extends StatefulWidget {
   final EventModel event;
@@ -23,6 +27,8 @@ class PaymentGatewayScreen extends StatefulWidget {
 class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
   final _formKey = GlobalKey<FormState>();
   final RegistrationService _registrationService = RegistrationService();
+  final StripeService _stripeService = StripeService();
+
   String _selectedPaymentMethod = 'credit_card';
   TextEditingController _cardNumberController = TextEditingController();
   TextEditingController _expiryController = TextEditingController();
@@ -32,34 +38,38 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
   bool _saveCardInfo = false;
 
   // Define colors
-  static const Color primaryColor = Color(0xFFD32F2F); // Red color matching your UI
+  static const Color primaryColor = Color(0xFFD32F2F);
   static const Color successColor = Color(0xFF4CAF50);
   static const Color errorColor = Color(0xFFF44336);
 
-  // Updated payment methods for Malaysia/Singapore
+  // Updated payment methods with Stripe for Malaysia/Singapore
   final List<Map<String, dynamic>> _paymentMethods = [
     {
       'id': 'credit_card',
       'name': 'Credit/Debit Card',
       'icon': Icons.credit_card,
       'color': primaryColor,
-      'description': 'Pay securely with your Visa, Mastercard, or AMEX',
-    },
-    {
-      'id': 'fpx',
-      'name': 'FPX',
-      'icon': Icons.account_balance,
-      'color': Colors.blue[800],
-      'description': 'Online banking through FPX',
-    },
-    {
-      'id': 'duitnow',
-      'name': 'DuitNow',
-      'icon': Icons.qr_code,
-      'color': Colors.green[700],
-      'description': 'Instant bank transfers via DuitNow',
+      'description': 'Pay securely with your Visa, Mastercard, or AMEX via Stripe',
     },
   ];
+
+  // Test card numbers for Stripe sandbox
+  final List<Map<String, String>> _testCards = [
+    {'name': 'Visa Success', 'number': '4242424242424242'},
+    {'name': 'Visa Fail', 'number': '4000000000000002'},
+    {'name': 'Mastercard', 'number': '5555555555554444'},
+    {'name': 'Amex', 'number': '378282246310005'},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeStripe();
+  }
+
+  Future<void> _initializeStripe() async {
+    await _stripeService.initialize();
+  }
 
   @override
   void dispose() {
@@ -68,6 +78,252 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
     _cvvController.dispose();
     _cardHolderController.dispose();
     super.dispose();
+  }
+
+  Future<Map<String, dynamic>> _createPaymentIntent() async {
+    try {
+      // Convert amount to cent (Stripe uses samllest currency unit)
+      final amount = (widget.totalAmount * 100).toInt();
+
+      // Create Payment intent
+      final paymentIntent = await _stripeService.createPaymentIntent(
+        amount: amount,
+        currency: 'myr',
+        description: 'Event: ${widget.event.name}',
+        metadata: {
+          'eventId': widget.event.id,
+          'ticketQuantity': widget.ticketQuantity.toString(),
+          'registrationId': widget.registrationData['registerId'] ?? '',
+        },
+      );
+
+      return {
+        'success': true,
+        'clientSecret': paymentIntent['clientSecret'],
+        'paymentIntentId': paymentIntent['id'],
+      };
+    } catch (error) {
+      print('Error creating payment intent: $error');
+      return {
+        'success': false,
+        'error': error.toString(),
+      };
+    }
+  }
+
+  Future<void> _processStripePaymentWithSheet() async {
+    // Validate card details
+    if(!_validateCardDetails()) return; 
+      
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      // Create payment with amount in cents
+      final amountInCents = (widget.totalAmount * 100).toInt();
+
+      final paymentIntent = await _stripeService.createPaymentIntent(
+        amount: amountInCents,
+        currency: 'myr',
+        description: 'Event: ${widget.event.name}',
+        metadata: {
+          'event_id': widget.event.id,
+          'ticket_quantity': widget.ticketQuantity.toString(),
+          'user_email': widget.registrationData['email'],
+          'register_id': widget.registrationData['registerId'],
+        },
+      );
+
+      print('Payment Intent Created: ${paymentIntent['id']}');
+      print('Client Secret: ${paymentIntent['client_secret']}');
+
+      // Initialize PaymentSheet
+      await Stripe.instance.initPaymentSheet(
+        paymentSheetParameters: SetupPaymentSheetParameters(
+          paymentIntentClientSecret: paymentIntent['client_secret'],
+          merchantDisplayName: 'Event Registration',
+          customerId: widget.registrationData['email'],
+          customerEphemeralKeySecret: null,
+          style: ThemeMode.light,
+          appearance: PaymentSheetAppearance(
+            colors: PaymentSheetAppearanceColors(
+              primary: primaryColor,
+              background: Colors.white,
+              componentBorder: Colors.grey[300]!,
+              componentDivider: Colors.grey[300]!,
+            ),
+          ),
+          billingDetails: BillingDetails(
+            name: _cardHolderController.text,
+            email: widget.registrationData['email'],
+            phone: widget.registrationData['phone'],
+          ),
+        ),
+      );
+
+      await Stripe.instance.presentPaymentSheet();
+
+      // Update registration with payment info
+      await _completeRegistration(paymentIntent['id']);
+
+      // Show success dialog
+      _showPaymentSuccessDialog(context);
+
+    } on StripeException catch (e) {
+      String errorMessage = 'Payment failed';
+
+      if (e.error.code == FailureCode.Canceled) {
+        errorMessage = 'Payment was cancelled';
+      } else if (e.error.code == FailureCode.Failed) {
+        errorMessage = e.error.message ?? 'Payment failed';
+      } else if (e.error.code == FailureCode.Timeout) {
+        errorMessage = 'Payment timeout. Please try again';
+      }  
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: errorColor,
+        ),
+      );
+    } catch (error) {
+      print('Payment error: $error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Payment failed: ${error.toString()}'),
+          backgroundColor: errorColor,
+        ),
+      );
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
+  Future<void> _completeRegistration(String paymentId) async {
+    try {
+      final registerId = widget.registrationData['registerId'] as String?;
+
+      if (registerId == null || registerId.isEmpty) {
+        throw Exception('Register ID is missing');
+      }
+
+      final result = await _registrationService.completePayment(
+        registerId: registerId,
+        amount: widget.totalAmount,
+        paymentId: paymentId,
+      );
+
+      if (!result['success']) {
+        throw Exception(result['error']?.toString() ?? 'Failed to update registration');
+      } 
+    } catch (error) {
+      print('Registration update error: $error');
+      rethrow;
+    }
+  }
+
+  bool _validateCardDetails() {
+    final cardNumber = _cardNumberController.text.replaceAll(' ', '');
+    final expiry = _expiryController.text;
+    final cvv = _cvvController.text;
+    final cardHolder = _cardHolderController.text;
+
+    // Card number validation
+    if (cardNumber.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please enter card number'),
+          backgroundColor: errorColor,
+        ),
+      );
+      return false;
+    }
+
+    if (cardNumber.length < 13 || cardNumber.length > 19) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please enter a valid card number (13-19 digits)'),
+        backgroundColor: errorColor,
+        ),
+      );
+      return false;
+    }
+
+    // Expiry date validation
+    if (!RegExp(r'^\d{2}/\d{2}$').hasMatch(expiry)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please enter expiry date in MM/YY format'),
+        ),
+      );
+      return false;
+    }
+
+    // Check if expiry date is in the future
+    final parts = expiry.split('/');
+    final month = int.tryParse(parts[0]);
+    final year = 2000 + int.tryParse(parts[1])!;
+    
+    if (month == null || month < 1 || month > 12) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please enter a valid month (01-12)'),
+          backgroundColor: errorColor,
+        ),
+      );
+      return false;
+    }
+    
+    final now = DateTime.now();
+    final currentYear = now.year;
+    final currentMonth = now.month;
+    
+    if (year < currentYear || (year == currentYear && month < currentMonth)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Card has expired'),
+          backgroundColor: errorColor,
+        ),
+      );
+      return false;
+    }
+
+     // CVV validation
+    if (cvv.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please enter CVV'),
+          backgroundColor: errorColor,
+        ),
+      );
+      return false;
+    }
+    
+    if (cvv.length < 3 || cvv.length > 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please enter a valid CVV (3-4 digits)'),
+          backgroundColor: errorColor,
+        ),
+      );
+      return false;
+    }
+
+    // Card holder name validation
+    if (cardHolder.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please enter card holder name'),
+          backgroundColor: errorColor,
+        ),
+      );
+      return false;
+    }
+  
+  return true;
   }
 
   void _showPaymentSuccessDialog(BuildContext context) {
@@ -340,8 +596,7 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
                   // Save to Calendar Button
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () {
-                        // TODO: Implement save to calendar functionality
+                      onPressed: () { // TODO: Implement save to calendar functionality
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('Event saved to calendar'),
@@ -402,50 +657,6 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
     );
   }
 
-  //ONLY USE CARD PAYMENT (EXPLORE SANDBOX)
-
-  Future<void> _processPayment() async {
-    if (_selectedPaymentMethod == 'credit_card') {
-      if (!_formKey.currentState!.validate()) return;
-    }
-
-    setState(() {
-      _isProcessing = true;
-    });
-
-    try {
-      // Process payment with registration service
-      final result = await _registrationService.completePayment(
-        registerId: widget.registrationData['registerId'], 
-        amount: widget.totalAmount, 
-        paymentId: 'payment_&{DateTime.now().millisecondsSinceEpoch}',
-      );
-
-      if(result['success'] == true) {
-        // Show payment success dialog
-      _showPaymentSuccessDialog(context);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Payment failed: ${result['error']}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (error) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('Payment failed: $error'),
-            backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      setState(() {
-        _isProcessing = false;
-      });
-    }
-  }
-
   Widget _buildCreditCardForm() {
     return Form(
       key: _formKey,
@@ -469,6 +680,76 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
               fontSize: 14,
             ),
           ),
+
+          // Test Cards Section (for sandbox)
+          SizedBox(height: 16),
+          Container(
+            padding: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.amber[50],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.amber[200]!),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.amber[800], size: 18),
+                    SizedBox(width: 8),
+                    Text(
+                      'Stripe Sandbox - Test Cards',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.amber[800],
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _testCards.map((card) {
+                    return GestureDetector(
+                      onTap: () {
+                        _cardNumberController.text = card['number']!;
+                        // Auto-fill other fields with test data
+                        if (card['number'] == '4242424242424242') {
+                          _expiryController.text = '12/34';
+                          _cvvController.text = '123';
+                          _cardHolderController.text = 'John Doe';
+                        }
+                      },
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.amber[100],
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.amber[300]!),
+                        ),
+                        child: Text(
+                          card['name']!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.amber[800],
+                          )
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Tap to auto-fill test card details',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.amber[700],
+                  ),
+                ),
+              ],
+            ),
+          ),
           SizedBox(height: 16),
           
           // Card Number
@@ -488,7 +769,8 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
               if (value == null || value.isEmpty) {
                 return 'Please enter card number';
               }
-              if (value.replaceAll(' ', '').length < 16) {
+              final cleaned = value.replaceAll(' ', '');
+              if (cleaned.length < 13 || cleaned.length > 19) {
                 return 'Please enter a valid card number';
               }
               return null;
@@ -634,7 +916,32 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
               _buildCardLogo('Mastercard', 'Mastercard'),
               SizedBox(width: 12),
               _buildCardLogo('AMEX', 'Amex'),
-            ],
+            ], 
+          ),
+
+          // Stripe Powered By
+          SizedBox(height: 16),
+          Container(
+            padding: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.verified, color: Colors.purple, size: 18),
+                SizedBox(width: 8),
+                Text(
+                  'Powered by Stripe',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.purple[600],
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -672,86 +979,6 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
           fontSize: 12,
         ),
       ),
-    );
-  }
-
-  Widget _buildBankTransferMethod(String title, String description, IconData icon, Color color) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(height: 20),
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-        SizedBox(height: 8),
-        Text(
-          description,
-          style: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 14,
-          ),
-        ),
-        SizedBox(height: 16),
-        Container(
-          padding: EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-          child: Column(
-            children: [
-              Icon(
-                icon,
-                color: color,
-                size: 48,
-              ),
-              SizedBox(height: 12),
-              Text(
-                'Secure Bank Transfer',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'You will be redirected to your bank\'s website to complete the payment.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey[600]),
-              ),
-              SizedBox(height: 16),
-              Container(
-                padding: EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: color, size: 20),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Transaction may take 1-2 business days to process',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 
@@ -1017,25 +1244,10 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
                 }).toList(),
               ),
               
-              // Payment Form based on selected method
+              // Credit Card Form 
               SizedBox(height: 24),
-              if (_selectedPaymentMethod == 'credit_card')
-                _buildCreditCardForm()
-              else if (_selectedPaymentMethod == 'fpx')
-                _buildBankTransferMethod(
-                  'FPX Payment',
-                  'Online banking through FPX',
-                  Icons.account_balance,
-                  Colors.blue[800]!,
-                )
-              else if (_selectedPaymentMethod == 'duitnow')
-                _buildBankTransferMethod(
-                  'DuitNow Payment',
-                  'Instant bank transfers via DuitNow',
-                  Icons.qr_code,
-                  Colors.green[700]!,
-                ),
-              
+              _buildCreditCardForm(),
+          
               SizedBox(height: 32),
               
               // Terms and Conditions
@@ -1089,7 +1301,7 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: _isProcessing ? null : _processPayment,
+                  onPressed: _isProcessing ? null : _processStripePaymentWithSheet,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryColor,
                     shape: RoundedRectangleBorder(

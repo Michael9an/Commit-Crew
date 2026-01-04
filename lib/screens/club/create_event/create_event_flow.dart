@@ -45,11 +45,8 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
   void _initializeEventData() {
     if (widget.eventToEdit != null) {
       _eventData = widget.eventToEdit!;
-      // If it is a duplicate, the previous screen (ClubEventDetails) likely cleared the ID,
-      // but just to be safe, if we are duplicating, we can treat it as a new draft visually,
-      // though the ID generation happens strictly in _submitEvent.
     } else {
-      // Default blank initialization for new event
+      // Default blank initialization
       _eventData = EventModel(
         id: '',
         name: '',
@@ -79,6 +76,8 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
         tags: [],
         contactEmail: widget.club.contactEmail ?? '',
         contactPhone: widget.club.contactPhone ?? '',
+        checkInMethod: 'self_scan', // Default
+        scannerPin: null, // Init PIN as null
       );
     }
   }
@@ -93,7 +92,6 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
   void _submitEvent() async {
     if (_isSubmitting || !mounted) return;
 
-    // Enhanced validation with specific error messages
     final validationError = _validateEventData();
     if (validationError != null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -135,8 +133,8 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 16),
                     Text(statusMessage),
                   ],
                 ),
@@ -159,23 +157,20 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
         }
       }
 
-      // --- FIX STARTS HERE ---
-      
-      // Determine if we are editing an existing event
+      // Determine editing
       final bool isEditing = widget.eventToEdit != null && !widget.isDuplicate;
 
       // 1. Determine ID
       String finalId;
       if (isEditing && _eventData.id.isNotEmpty) {
-        finalId = _eventData.id; // Use existing ID for updates
+        finalId = _eventData.id;
       } else {
-        finalId = '${widget.club.id}_${DateTime.now().millisecondsSinceEpoch}'; // Generate new ID
+        finalId = '${widget.club.id}_${DateTime.now().millisecondsSinceEpoch}';
       }
 
       // 2. Determine Created At
       DateTime finalCreatedAt;
       if (isEditing) {
-        // FIX: Handle potential null value from model
         finalCreatedAt = _eventData.createdAt ?? DateTime.now(); 
       } else {
         finalCreatedAt = DateTime.now(); 
@@ -188,9 +183,8 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
         createdAt: finalCreatedAt,
         updatedAt: DateTime.now(), 
       );
-      // --- FIX ENDS HERE ---
 
-      // Handle image upload if there's a banner
+      // Handle image upload
       String? bannerDownloadUrl = await _handleImageUpload(eventToSave, progressNotifier);
       if (bannerDownloadUrl != null) {
         eventToSave = eventToSave.copyWith(bannerUrl: bannerDownloadUrl);
@@ -198,16 +192,13 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
 
       progressNotifier.value = 'Saving event details...';
       
-      // Save event to Firestore (addEvent typically uses .set() which overwrites/updates if ID exists)
       await _firestoreService.addEvent(eventToSave).timeout(
-        Duration(seconds: 15),
+        const Duration(seconds: 15),
         onTimeout: () {
           throw TimeoutException('Failed to save event: operation timed out. Please try again.');
         },
       );
       
-      // Only update club's event list if it's a NEW event (or duplicate)
-      // If editing, the ID is likely already in the club's list.
       if (!isEditing) {
         progressNotifier.value = 'Updating club information...';
         await _updateClubEvents(eventToSave.id);
@@ -215,9 +206,7 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
       
       if (!mounted) return;
       
-      Navigator.pop(context); // Close progress dialog
-      
-      // Show success message
+      Navigator.pop(context); 
       _showSuccessDialog(eventToSave.name, isEditing);
       
     } catch (e) {
@@ -242,24 +231,23 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
     if (_eventData.startTime.isEmpty) return 'Please select start time';
     if (_eventData.endTime.isEmpty) return 'Please select end time';
     
+    // Check-in Method Validation
+    if (_eventData.checkInMethod == 'organizer_scan') {
+      if (_eventData.scannerPin == null || _eventData.scannerPin!.isEmpty) {
+        return 'Please set a Scanner PIN for volunteer access';
+      }
+      if (_eventData.scannerPin!.length < 4) {
+        return 'Scanner PIN must be at least 4 digits';
+      }
+    }
+    
     try {
       final eventDate = DateTime.fromMillisecondsSinceEpoch(int.parse(_eventData.date));
-      // Allow editing past events? If not, keep this check. 
-      // Usually for edits, we might relax this if the event is already in the past, but for now keeping it safe.
-      if (eventDate.isBefore(DateTime.now().subtract(Duration(days: 1))) && widget.eventToEdit == null) {
+      if (eventDate.isBefore(DateTime.now().subtract(const Duration(days: 1))) && widget.eventToEdit == null) {
         return 'Event date cannot be in the past';
       }
     } catch (e) {
       return 'Invalid event date format';
-    }
-    
-    if (_eventData.startTime.isNotEmpty && _eventData.endTime.isNotEmpty) {
-      final start = _parseTime(_eventData.startTime);
-      final end = _parseTime(_eventData.endTime);
-      if (start != null && end != null && end.isBefore(start)) {
-        // Handle midnight crossover if needed, otherwise strict check
-        // return 'End time cannot be before start time';
-      }
     }
     
     if (!_eventData.isFree && _eventData.price <= 0) return 'Please enter a valid price for paid events';
@@ -330,17 +318,17 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
         return AlertDialog(
           title: Row(
             children: [
-              Icon(Icons.check_circle, color: Colors.green),
-              SizedBox(width: 8),
-              Text('Success!'),
+              const Icon(Icons.check_circle, color: Colors.green),
+              const SizedBox(width: 8),
+              const Text('Success!'),
             ],
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text('Event "$eventName" ${isEdit ? 'updated' : 'created'} successfully!'),
-              SizedBox(height: 16),
-              Icon(Icons.event_available, size: 48, color: Colors.green),
+              const SizedBox(height: 16),
+              const Icon(Icons.event_available, size: 48, color: Colors.green),
             ],
           ),
           actions: [
@@ -349,7 +337,7 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
                 Navigator.pop(context); 
                 Navigator.pop(context); 
               },
-              child: Text('Back to Dashboard'),
+              child: const Text('Back to Dashboard'),
             ),
           ],
         );
@@ -400,16 +388,16 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
     final shouldExit = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Discard Changes?'),
-        content: Text('Are you sure you want to discard? Unsaved progress will be lost.'),
+        title: const Text('Discard Changes?'),
+        content: const Text('Are you sure you want to discard? Unsaved progress will be lost.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('Cancel'),
+            child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text('Discard', style: TextStyle(color: Colors.red)),
+            child: const Text('Discard', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -456,10 +444,10 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
             widget.eventToEdit != null && !widget.isDuplicate 
                 ? 'Edit Event' 
                 : 'Create Event - ${widget.club.name}',
-            style: TextStyle(fontSize: 16),
+            style: const TextStyle(fontSize: 16),
           ),
           leading: IconButton(
-            icon: Icon(Icons.arrow_back),
+            icon: const Icon(Icons.arrow_back),
             onPressed: _isSubmitting ? null : () async {
               final shouldPop = await _onWillPop();
               if (shouldPop && mounted) {
@@ -477,15 +465,15 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
                 _isSubmitting ? Colors.grey : Theme.of(context).primaryColor,
               ),
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     'Step ${_currentStep + 1} of ${pages.length}',
-                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
                   ),
                   Text(
                     _getStepTitle(_currentStep),
@@ -502,7 +490,7 @@ class _CreateEventFlowState extends State<CreateEventFlow> {
               child: AbsorbPointer(
                 absorbing: _isSubmitting,
                 child: AnimatedSwitcher(
-                  duration: Duration(milliseconds: 300),
+                  duration: const Duration(milliseconds: 300),
                   child: pages[_currentStep],
                 ),
               ),
