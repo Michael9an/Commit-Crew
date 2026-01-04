@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
 import 'dart:async';
+import 'package:qr_flutter/qr_flutter.dart'; // Added QR Import
 
 // --- MODELS ---
 import '../../models/event.dart';
@@ -40,7 +41,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
   final RegistrationService _registrationService = RegistrationService();
   final AuthService _authService = AuthService();
   final ReviewService _reviewService = ReviewService();
-  final StorageService _storageService = StorageService(); // NEW
+  final StorageService _storageService = StorageService();
 
   // --- STATE VARIABLES ---
   bool _isRegistered = false;
@@ -173,6 +174,23 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
         });
       }
     }
+  }
+
+  void _showMyTicket() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    
+    final qrData = "${widget.event.id}_${user.uid}"; 
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TicketScreen(
+          eventName: widget.event.name,
+          qrData: qrData,
+        ),
+      ),
+    );
   }
 
   // =========================================================
@@ -470,29 +488,45 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     );
   }
 
-  // --- BUTTON LOGIC ---
   Widget _buildBottomButton(bool isPastEvent) {
     if (_isRegistered) {
-      return Row(
+      return Column(
         children: [
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              decoration: BoxDecoration(
-                color: Colors.green[50],
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.green),
-              ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.check_circle, color: Colors.green),
-                  SizedBox(width: 8),
-                  Text("You are Registered", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                ],
-              ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            decoration: BoxDecoration(
+              color: Colors.green[50],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.green),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.check_circle, color: Colors.green),
+                SizedBox(width: 8),
+                Text("You are Registered", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+              ],
             ),
           ),
+          
+          if (!isPastEvent) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _showMyTicket,
+                icon: const Icon(Icons.qr_code, size: 20),
+                label: const Text("View Ticket"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black87,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+          ],
         ],
       );
     }
@@ -519,9 +553,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     Navigator.push(context, MaterialPageRoute(builder: (context) => WriteReviewScreen(event: widget.event)));
   }
 
-  // --- SAFE AVATAR BUILDER (Fix for Crash) ---
   Widget _buildAvatar(String? url, String name, bool isClub) {
-    // Default widget to show if loading fails or no URL
     Widget defaultWidget = CircleAvatar(
         radius: 16,
         backgroundColor: isClub ? Colors.blue : Colors.orange[100],
@@ -533,7 +565,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     if (url == null || url.isEmpty) return defaultWidget;
 
     return FutureBuilder<String?>(
-      future: _storageService.resolveImageUrl(url), // Resolve local paths
+      future: _storageService.resolveImageUrl(url),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const CircleAvatar(radius: 16, backgroundColor: Colors.grey);
         if (snapshot.hasError || snapshot.data == null) return defaultWidget;
@@ -541,19 +573,17 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
         return CircleAvatar(
           radius: 16,
           backgroundImage: NetworkImage(snapshot.data!),
-          onBackgroundImageError: (_,__) {}, // Catch network errors
+          onBackgroundImageError: (_,__) {},
         );
       },
     );
   }
 
-  // --- REVIEW ITEM with AUTHOR BADGE ---
   Widget _buildReviewItem(ReviewModel review, User? currentUser) {
     bool isMe = currentUser != null && review.userId == currentUser.uid;
     bool isLiked = currentUser != null && review.likedBy.contains(currentUser.uid);
     int likeCount = review.likedBy.length;
     
-    // Fix username display
     String displayName = review.userName.isNotEmpty ? review.userName : 'Participant';
 
     return Container(
@@ -638,16 +668,109 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     );
   }
 
+  // --- UPDATED: Banner Loader (Correctly resolves Google Drive links) ---
   Widget _buildEventImage(String? imageUrl) {
-    if (imageUrl == null || imageUrl.isEmpty) return Container(color: Colors.grey[200], child: const Center(child: Icon(Icons.event, size: 40, color: Colors.grey)));
-    if (imageUrl.startsWith('/')) return Image.file(File(imageUrl), fit: BoxFit.cover, errorBuilder: (_,__,___) => _buildErrorImage());
-    return Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_,__,___) => _buildErrorImage());
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return Container(
+        color: Colors.grey[200],
+        child: const Center(child: Icon(Icons.event, size: 40, color: Colors.grey)),
+      );
+    }
+
+    return FutureBuilder<String?>(
+      future: _storageService.resolveImageUrl(imageUrl),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            color: Colors.grey[200],
+            child: const Center(child: CircularProgressIndicator()),
+          );
+        }
+        
+        final resolvedUrl = snapshot.data;
+        
+        if (resolvedUrl == null || resolvedUrl.isEmpty) {
+          return _buildErrorImage();
+        }
+
+        return Image.network(
+          resolvedUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _buildErrorImage(),
+        );
+      },
+    );
   }
+
   Widget _buildErrorImage() => Container(color: Colors.grey[200], child: const Center(child: Icon(Icons.broken_image, size: 40, color: Colors.grey)));
 }
 
+// --- TICKET SCREEN (Prevents ANR) ---
+class TicketScreen extends StatelessWidget {
+  final String eventName;
+  final String qrData;
+
+  const TicketScreen({super.key, required this.eventName, required this.qrData});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("My E-Ticket")),
+      backgroundColor: Colors.grey[100],
+      body: Center(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(eventName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+              const SizedBox(height: 8),
+              const Text("Show this to the event organizer", style: TextStyle(color: Colors.grey)),
+              const SizedBox(height: 30),
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 15, offset: const Offset(0, 5))],
+                ),
+                child: QrImageView(
+                  data: qrData,
+                  version: QrVersions.auto,
+                  size: 260.0,
+                  backgroundColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 20),
+              
+              const Text("Ticket ID", style: TextStyle(color: Colors.grey)),
+              const SizedBox(height: 4),
+              SelectableText(
+                qrData, 
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 40),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.check),
+                label: const Text("Done"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black87,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ==========================================
-// PARTICIPANT REPLY BOTTOM SHEET (Read-Only Badges)
+// PARTICIPANT REPLY BOTTOM SHEET
 // ==========================================
 class ReplyBottomSheet extends StatefulWidget {
   final String reviewId;
@@ -661,7 +784,7 @@ class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
   final TextEditingController _ctrl = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final ReviewService _service = ReviewService();
-  final StorageService _storageService = StorageService(); // NEW
+  final StorageService _storageService = StorageService();
   final String _myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
   String? _replyingToUser;
 
@@ -675,9 +798,7 @@ class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
 
   void _delete(String replyId) => _service.deleteReply(widget.reviewId, replyId);
 
-  // --- SAFE AVATAR BUILDER (FIXED) ---
   Widget _buildAvatar(String? url, String name, bool isClub) {
-    // Default
     Widget defaultWidget = CircleAvatar(
         radius: 16,
         backgroundColor: isClub ? Colors.blue : Colors.grey[200],
@@ -736,7 +857,6 @@ class _ReplyBottomSheetState extends State<ReplyBottomSheet> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                             // AVATAR LOGIC (Fixed for Crash)
                              _buildAvatar(r.userAvatarUrl, r.userName, isClub),
                             const SizedBox(width: 12),
                             Expanded(

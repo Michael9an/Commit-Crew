@@ -46,15 +46,11 @@ class ReviewService {
     try {
       List<String> downloadUrls = await _uploadPhotos(eventId, photos);
       
-      // --- FIX: AGGRESSIVE USERNAME FETCHING ---
       String displayName = '';
-      
       try {
-        // Try fetching from 'users' collection
         final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
         if (userDoc.exists && userDoc.data() != null) {
           final data = userDoc.data()!;
-          // Priority: username -> fullName -> name
           if (data['username'] != null && data['username'].toString().isNotEmpty) {
             displayName = data['username'];
           } else if (data['fullName'] != null && data['fullName'].toString().isNotEmpty) {
@@ -67,18 +63,15 @@ class ReviewService {
         print("Error fetching user detail: $e");
       }
       
-      // Fallback to Auth Display Name or Email
       if (displayName.isEmpty) {
         displayName = currentUser.displayName ?? '';
       }
       if (displayName.isEmpty && currentUser.email != null) {
         displayName = currentUser.email!.split('@')[0];
       }
-      // Final fallback
       if (displayName.isEmpty) {
         displayName = 'Participant';
       }
-      // ----------------------------------------
 
       final newReview = ReviewModel(
         id: reviewId,
@@ -97,13 +90,12 @@ class ReviewService {
     }
   }
 
-  // --- 3. UPDATE REVIEW (Edit) ---
+  // --- 3. UPDATE REVIEW (Main Review) ---
   Future<void> updateReview({
     required String reviewId,
     required double newRating,
     required String newComment,
   }) async {
-    // Note: You can comment out 'rating': newRating if you want to strictly ban rating changes on backend too.
     await _firestore.collection('reviews').doc(reviewId).update({
       'rating': newRating, 
       'comment': newComment,
@@ -135,7 +127,6 @@ class ReviewService {
 
     String displayName = overrideName ?? '';
 
-    // If NOT a club rep, try to fetch the real user name again
     if (!isClubRep && displayName.isEmpty) {
         try {
           final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
@@ -166,6 +157,19 @@ class ReviewService {
         .add(reply.toFirestore());
   }
 
+  // --- NEW: UPDATE REPLY (For editing specific comments) ---
+  Future<void> updateReply(String reviewId, String replyId, String newContent) async {
+    await _firestore
+        .collection('reviews')
+        .doc(reviewId)
+        .collection('replies')
+        .doc(replyId)
+        .update({
+          'content': newContent,
+          // You could also add 'isEdited': true here if ReplyModel supports it
+        });
+  }
+
   Future<void> deleteReply(String reviewId, String replyId) async {
     await _firestore
         .collection('reviews')
@@ -175,7 +179,7 @@ class ReviewService {
         .delete();
   }
 
-  // --- 5. HELPERS & FETCHING ---
+  // --- 5. HELPERS ---
   Future<List<String>> _uploadPhotos(String eventId, List<File>? photos) async {
     if (photos == null || photos.isEmpty) return [];
     
@@ -185,10 +189,8 @@ class ReviewService {
     for (var imageFile in photos) {
       final String fileName = '${uuid.v4()}.jpg';
       final Reference ref = _storage.ref().child('reviews').child(eventId).child(fileName);
-      final UploadTask uploadTask = ref.putFile(imageFile);
-      final TaskSnapshot snapshot = await uploadTask;
-      final String url = await snapshot.ref.getDownloadURL();
-      urls.add(url);
+      await ref.putFile(imageFile);
+      urls.add(await ref.getDownloadURL());
     }
     return urls;
   }

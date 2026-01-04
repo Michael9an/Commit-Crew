@@ -35,6 +35,12 @@ class EventModel {
   final bool refundEnabled;          
   final int refundDeadlineDays;
   final String refundMethodDetails; 
+  
+  // --- NEW FIELD: CHECK-IN METHOD ---
+  // 'self_scan' = Participant scans Club QR (Default)
+  // 'organizer_scan' = Club scans Participant Ticket
+  final String checkInMethod; 
+  final String? scannerPin;
 
   EventModel({
     required this.id,
@@ -71,6 +77,8 @@ class EventModel {
     this.refundEnabled = false,
     this.refundDeadlineDays = 0,
     this.refundMethodDetails = '',
+    this.checkInMethod = 'self_scan', // Default to self_scan
+    this.scannerPin,
   });
 
  factory EventModel.fromFirestore(Map<String, dynamic> data, String documentId) {
@@ -118,8 +126,11 @@ class EventModel {
       refundEnabled: data['refundEnabled'] ?? false,
       refundDeadlineDays: data['refundDeadlineDays'] ?? 0,
       refundMethodDetails: data['refundMethodDetails'] ?? '',
+      checkInMethod: data['checkInMethod'] ?? 'self_scan', // Load from DB
+      scannerPin: data['scannerPin'], // Load PIN
     );
   }
+
   Map<String, dynamic> toFirestore() {
     dynamic _convertToTimestamp(DateTime? dateTime) {
       if (dateTime == null) return FieldValue.serverTimestamp();
@@ -161,10 +172,12 @@ class EventModel {
       'refundEnabled': refundEnabled,
       'refundDeadlineDays': refundDeadlineDays,
       'refundMethodDetails': refundMethodDetails,
+      'checkInMethod': checkInMethod, // Save to DB
+      'scannerPin': scannerPin, // Save PIN
     };
   }
 
-  // 3. Corrected fromJson (Added missing lat/lng logic)
+  // 3. Corrected fromJson
   factory EventModel.fromJson(Map<String, dynamic> json) {
     DateTime? _parseDateTime(String? dateString) {
       if (dateString == null) return null;
@@ -191,7 +204,7 @@ class EventModel {
       createdAt: _parseDateTime(json['createdAt']),
       status: json['status'] ?? 'upcoming',
       attendees: List<String>.from(json['attendees'] ?? []),
-      attendeesEmail: List<String>.from(json['attendeesEmail'] ?? []), // Added this missing field
+      attendeesEmail: List<String>.from(json['attendeesEmail'] ?? []),
       waitlist: List<String>.from(json['waitlist'] ?? []),
       views: json['views'] ?? 0,
       shares: json['shares'] ?? 0,
@@ -206,6 +219,8 @@ class EventModel {
       refundEnabled: json['refundEnabled'] ?? false,
       refundDeadlineDays: json['refundDeadlineDays'] ?? 0,
       refundMethodDetails: json['refundMethodDetails'] ?? '',
+      checkInMethod: json['checkInMethod'] ?? 'self_scan', // Load from JSON
+      scannerPin: json['scannerPin'], // Load PIN
     );
   }
 
@@ -230,7 +245,7 @@ class EventModel {
       'createdAt': createdAt?.toIso8601String(),
       'status': status,
       'attendees': attendees,
-      'attendeesEmail': attendeesEmail, // Added this missing field
+      'attendeesEmail': attendeesEmail,
       'waitlist': waitlist,
       'views': views,
       'shares': shares,
@@ -245,6 +260,8 @@ class EventModel {
       'refundEnabled': refundEnabled,
       'refundDeadlineDays': refundDeadlineDays,
       'refundMethodDetails': refundMethodDetails,
+      'checkInMethod': checkInMethod, // Save to JSON
+      'scannerPin': scannerPin, // Save PIN
     };
   }
 
@@ -326,19 +343,14 @@ class EventModel {
     return '$attendanceCount / $maxAttendees';
   }
 
-  // Check if user is attending
   bool isUserAttending(String userId) {
     return attendees.contains(userId);
   }
 
-  // Check if user is on waitlist
   bool isUserOnWaitlist(String userId) {
     return waitlist.contains(userId);
   }
 
-  /// Returns a new [EventModel] copying current values and replacing
-  /// any provided fields. Useful for keeping the model immutable while
-  /// updating a single field (for example, assigning an ID before save).
   EventModel copyWith({
     String? id,
     String? name,
@@ -373,6 +385,8 @@ class EventModel {
     bool? refundEnabled,
     int? refundDeadlineDays,
     String? refundMethodDetails,
+    String? checkInMethod, // Added to copyWith
+    String? scannerPin, // Added
   }) {
     return EventModel(
       id: id ?? this.id,
@@ -408,8 +422,11 @@ class EventModel {
       refundEnabled: refundEnabled ?? this.refundEnabled,
       refundDeadlineDays: refundDeadlineDays ?? this.refundDeadlineDays,
       refundMethodDetails: refundMethodDetails ?? this.refundMethodDetails,
+      checkInMethod: checkInMethod ?? this.checkInMethod,
+      scannerPin: scannerPin ?? this.scannerPin,
     );
   }
+
 
   // Add attendee to event
   EventModel addAttendee(String userId) {
@@ -540,7 +557,6 @@ class EventModel {
     );
   }
 
-  // Check if event is happening today
   bool get isToday {
     final now = DateTime.now();
     final eventDate = dateTime;
@@ -549,17 +565,14 @@ class EventModel {
            now.day == eventDate.day;
   }
 
-  // Check if event is happening in the future
   bool get isFuture {
     return dateTime.isAfter(DateTime.now());
   }
 
-  // Check if event is happening in the past
   bool get isPast {
     return dateTime.isBefore(DateTime.now());
   }
 
-  // Get days until event
   int get daysUntil {
     final now = DateTime.now();
     final eventDate = dateTime;
@@ -580,15 +593,11 @@ class EventModel {
   @override
   int get hashCode => id.hashCode;
 
-  // --- HELPER: CHECK IF EDIT IS ALLOWED ---
-  // Returns TRUE if we are currently BEFORE the 3-day lockout
   bool get canEdit {
-    // If date isn't set, allow edit
     final timestamp = int.tryParse(date);
     if (timestamp == null) return true;
     
     final eventDateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
-    // Deadline is 3 days before the event
     final deadline = eventDateTime.subtract(const Duration(days: 3));
     
     return DateTime.now().isBefore(deadline);
