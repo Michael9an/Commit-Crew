@@ -184,12 +184,6 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         return Colors.green;
       case 'attended':
         return Colors.blue;
-      case 'cancelled':
-        return Colors.red;
-      case 'no_show':
-        return Colors.grey;
-      case 'pending': // For payment status
-        return Colors.orange;
       default:
         return Colors.grey;
     }
@@ -197,12 +191,6 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   // Get display status text
   String _getDisplayStatus(Register registration) {
-    if (registration.status == 'registered') {
-      if (registration.paymentStatus == 'pending' && registration.amountPaid > 0) {
-        return 'Payment Pending';
-      }
-      return registration.displayStatus;
-    }
     return registration.displayStatus;
   }
 
@@ -459,8 +447,6 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                 _buildRegisteredActions(registration, event)
               else if (registration.status == 'attended' && event?.isPast == true)
                 _buildAttendedActions(registration, event!)
-              else if (registration.status == 'cancelled')
-                _buildCancelledActions(registration),
             ],
           ),
         ),
@@ -469,45 +455,16 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   }
 
   Widget _buildRegisteredActions(Register registration, EventModel? event) {
-    final isPaymentPending = registration.paymentStatus == 'pending' && registration.amountPaid > 0;
     
     return Row(
       children: [
-        // Cancel button (always available for registered status)
-        Expanded(
-          child: OutlinedButton(
-            onPressed: () {
-              _showCancelDialog(registration.id);
-            },
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.red,
-              side: BorderSide(color: Colors.red),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              padding: EdgeInsets.symmetric(vertical: 10),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.cancel, size: 18),
-                SizedBox(width: 8),
-                Text('Cancel'),
-              ],
-            ),
-          ),
-        ),
-        
+        // View Ticket button
         SizedBox(width: 12),
-        
-        // Pay Now or View Ticket button
         Expanded(
           child: ElevatedButton(
-            onPressed: isPaymentPending
-                ? () => _viewPaymentDetails(registration)
-                : event != null ? () => _viewTicket(registration, event) : null,
+            onPressed: event != null ? () => _viewTicket(registration, event) : null,
             style: ElevatedButton.styleFrom(
-              backgroundColor: isPaymentPending ? Colors.red : Colors.blue,
+              backgroundColor:Colors.blue,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -516,9 +473,9 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(isPaymentPending ? Icons.payment : Icons.qr_code, size: 18),
+                Icon(Icons.qr_code, size: 18),
                 SizedBox(width: 8),
-                Text(isPaymentPending ? 'Pay Now' : 'View Ticket'),
+                Text('View Ticket'),
               ],
             ),
           ),
@@ -552,94 +509,6 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
             Text('Write Review'),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildCancelledActions(Register registration) {
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-      decoration: BoxDecoration(
-        color: Colors.red[50],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.red[100]!),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.info_outline, size: 18, color: Colors.red),
-          SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Cancelled on ${_formatDate(registration.cancelledAt)}',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.red[700],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showCancelDialog(String registerId) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Cancel Registration'),
-        content: Text('Are you sure you want to cancel this registration? This action cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('No'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              try {
-                final result = await _registrationService.cancelRegistration(registerId);
-                
-                if (result['success'] == true) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(result['message'] ?? 'Registration cancelled successfully'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  _loadMyRegistrations(); // Refresh list
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(result['error'] ?? 'Failed to cancel registration'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Failed to cancel: $e'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            },
-            child: Text(
-              'Yes, Cancel',
-              style: TextStyle(color: Colors.red),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _viewPaymentDetails(Register registration) {
-    // TODO: Implement payment details screen
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Payment details for ${registration.id}'),
-        backgroundColor: Colors.blue,
       ),
     );
   }
@@ -912,11 +781,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                                 SizedBox(width: 8),
                                 _buildFilterChip('Registered', isSelected: _currentFilter == 'Registered'),
                                 SizedBox(width: 8),
-                                _buildFilterChip('Payment Pending', isSelected: _currentFilter == 'Payment Pending'),
-                                SizedBox(width: 8),
                                 _buildFilterChip('Attended', isSelected: _currentFilter == 'Attended'),
-                                SizedBox(width: 8),
-                                _buildFilterChip('Cancelled', isSelected: _currentFilter == 'Cancelled'),
                               ],
                             ),
                           ),
