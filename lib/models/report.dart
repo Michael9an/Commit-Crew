@@ -5,7 +5,8 @@ class ReportModel {
   final String userId;
   final String reason;
   final String? details;
-  final String status; // 'pending', 'reviewed', 'resolved'
+  final String? imageUrl;
+  final String status; // 'pending', 'reviewing', 'resolved', 'dismissed'
   final DateTime createdAt;
   final DateTime? reviewedAt;
   final String? reviewerNotes;
@@ -17,6 +18,7 @@ class ReportModel {
     required this.userId,
     required this.reason,
     this.details,
+    this.imageUrl,
     this.status = 'pending',
     required this.createdAt,
     this.reviewedAt,
@@ -31,6 +33,7 @@ class ReportModel {
       userId: data['userId'] ?? '',
       reason: data['reason'] ?? '',
       details: data['details'],
+      imageUrl: data['imageUrl'],
       status: data['status'] ?? 'pending',
       createdAt: data['createdAt'] != null
           ? DateTime.fromMillisecondsSinceEpoch(data['createdAt'] as int)
@@ -49,6 +52,7 @@ class ReportModel {
       'userId': userId,
       'reason': reason,
       'details': details,
+      'imageUrl': imageUrl,
       'status': status,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'reviewedAt': reviewedAt?.millisecondsSinceEpoch,
