@@ -4,6 +4,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:uuid/uuid.dart';
 import '../models/review.dart';
+import '../models/report.dart';
 
 class ReviewService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -94,14 +95,42 @@ class ReviewService {
     final currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
-    await _firestore.collection('reports').add({
-      'targetType': 'review', // Distinguish from event reports
-      'targetId': reviewId,
-      'reporterId': currentUser.uid,
-      'reason': reason,
-      'timestamp': FieldValue.serverTimestamp(),
-      'status': 'pending', // pending, resolved, dismissed
-    });
+    try {
+      // 1. Get Review Data to find Event ID
+      final reviewDoc = await _firestore.collection('reviews').doc(reviewId).get();
+      if (!reviewDoc.exists) return; // Or throw
+      
+      final String eventId = reviewDoc.data()?['eventId'] ?? '';
+      
+      // 2. Get Event Data to find Event Name
+      String eventName = 'Unknown Event';
+      if (eventId.isNotEmpty) {
+        final eventDoc = await _firestore.collection('events').doc(eventId).get();
+        if (eventDoc.exists) {
+          eventName = eventDoc.data()?['name'] ?? 'Unknown Event';
+        }
+      }
+
+      // 3. Create Report
+      final String reportId = _firestore.collection('reports').doc().id;
+      
+      final report = ReportModel(
+        id: reportId,
+        eventId: eventId,
+        eventName: eventName,
+        userId: currentUser.uid,
+        reason: reason,
+        status: 'pending',
+        type: 'review',
+        targetId: reviewId,
+        createdAt: DateTime.now(),
+      );
+
+      await _firestore.collection('reports').doc(reportId).set(report.toFirestore());
+    } catch (e) {
+      print('Error reporting review: $e');
+      rethrow;
+    }
   }
 
   Stream<List<ReviewModel>> getEventReviews(String eventId) {

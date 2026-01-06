@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/firestore_service.dart';
 import '../../models/event.dart';
 import '../../models/club.dart';
+import 'overview_detail_screen.dart';
 
 class SystemAnalyticsScreen extends StatefulWidget {
   const SystemAnalyticsScreen({Key? key}) : super(key: key);
@@ -105,9 +106,22 @@ class _SystemAnalyticsScreenState extends State<SystemAnalyticsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           // Hero Card - Active Participants
-                          _buildHeroStatCard(
-                            'Active Participants',
-                            (currentStats['activeParticipants'] ?? 0).toString(),
+                          GestureDetector(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => OverviewDetailScreen(
+                                    type: OverviewType.activeParticipants,
+                                    dateRange: _selectedDateRange,
+                                  ),
+                                ),
+                              );
+                            },
+                            child: _buildHeroStatCard(
+                              'Active Participants',
+                              (currentStats['activeParticipants'] ?? 0).toString(),
+                            ),
                           ),
                           
                           const SizedBox(height: 16),
@@ -126,24 +140,28 @@ class _SystemAnalyticsScreenState extends State<SystemAnalyticsScreen> {
                                 (currentStats['totalRegistrations'] ?? 0).toString(),
                                 Icons.app_registration,
                                 Colors.blue,
+                                onTap: () => _navigateToDetail(OverviewType.totalRegistrations),
                               ),
                               _buildStatCard(
                                 'Events Created',
                                 (currentStats['eventCount'] ?? 0).toString(),
                                 Icons.event,
                                 Colors.orange,
+                                onTap: () => _navigateToDetail(OverviewType.eventsCreated),
                               ),
                               _buildStatCard(
                                 'Active Clubs',
                                 (currentStats['activeClubs'] ?? 0).toString(),
                                 Icons.business_center,
                                 Colors.purple,
+                                onTap: () => _navigateToDetail(OverviewType.activeClubs),
                               ),
                               _buildStatCard(
                                 'Total Reports',
                                 (currentStats['reportCount'] ?? 0).toString(),
                                 Icons.report,
                                 Colors.red,
+                                onTap: () => _navigateToDetail(OverviewType.totalReports),
                               ),
                             ],
                           ),
@@ -226,63 +244,78 @@ class _SystemAnalyticsScreenState extends State<SystemAnalyticsScreen> {
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+  void _navigateToDetail(OverviewType type) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OverviewDetailScreen(
+          type: type,
+          dateRange: _selectedDateRange,
+        ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF101213),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    icon,
-                    color: color,
-                    size: 20,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  Widget _buildStatCard(String title, String value, IconData icon, Color color, {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
             ),
           ],
+          border: Border.all(color: Colors.grey.withOpacity(0.1)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF101213),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      icon,
+                      color: color,
+                      size: 20,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                title,
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
         ),
       ),
     );
