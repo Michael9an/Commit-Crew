@@ -75,7 +75,7 @@ class RegistrationService {
           .collection('registers')
           .where('eventId', isEqualTo: eventId)
           .where('email', isEqualTo: email.trim().toLowerCase())
-          .where('status', whereIn: ['registered', 'pending'])
+          .where('status', whereIn: ['registered', 'pending', 'attended'])
           .limit(1)
           .get();
 
