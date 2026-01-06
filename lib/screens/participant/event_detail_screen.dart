@@ -155,7 +155,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
       }
 
       final isRegistered = await _registrationService.isUserRegistered(
-        widget.event.id,
+        widget.event.id!, // Added ! check here assuming ID exists
         userId: user.id,
         email: user.email,
       );
@@ -634,7 +634,8 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                   SizedBox(height: 16),
 
                   StreamBuilder<List<ReviewModel>>(
-                    stream: _reviewService.getEventReviews(widget.event.id),
+                    // --- FIX: Pass widget.event.id! to avoid type errors ---
+                    stream: _reviewService.getEventReviews(widget.event.id!),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return Center(child: CircularProgressIndicator());

@@ -5,7 +5,7 @@ import '../../models/club.dart';
 import '../../services/firestore_service.dart';
 
 class AdminVerificationScreen extends StatelessWidget {
-  final FirestoreService _firestoreService = FirestoreService();
+  final FirestoreService firestoreService = FirestoreService();
 
   AdminVerificationScreen({super.key});
 
