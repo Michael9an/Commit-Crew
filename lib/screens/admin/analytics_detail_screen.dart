@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/event.dart';
 import '../../models/report.dart';
 import '../../models/user.dart';
@@ -711,6 +712,10 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
                       
                       // More Information
                       _buildMoreInfo(),
+
+                      // Danger Zone for Club Admins
+                      if (widget.role == 'club')
+                        _buildDangerZone(),
                     ],
                   ),
                 ),
@@ -1624,6 +1629,174 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         const SizedBox(height: 24),
       ],
     );
+  }
+
+  Widget _buildDangerZone() {
+    if (_club == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'DANGER ZONE',
+            style: TextStyle(
+              color: Colors.red,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.red.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.red.withOpacity(0.2)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _club!.status == 'restricted' ? 'Unrestrict Club' : 'Restrict Club',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _club!.status == 'restricted' 
+                          ? 'Allow club to create events again'
+                          : 'Prevent club from creating new events',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: _toggleClubRestriction,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Text(_club!.status == 'restricted' ? 'Enable' : 'Restrict'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _toggleClubRestriction() async {
+    if (_club == null) return;
+
+    final isRestricted = _club!.status == 'restricted';
+    final action = isRestricted ? 'unrestrict' : 'restrict';
+    final passwordController = TextEditingController();
+    
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${isRestricted ? 'Unrestrict' : 'Restrict'} Club?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to $action ${_club!.name}? \n'
+              '${isRestricted ? 'They will be able to create events again.' : 'They will no longer be able to create events.'}'
+            ),
+            const SizedBox(height: 16),
+            const Text('Enter admin password to confirm:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'Password',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: Text(isRestricted ? 'Unrestrict' : 'Restrict'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      if (passwordController.text.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+           const SnackBar(content: Text('Password is required')),
+        );
+        return;
+      }
+
+      setState(() => _isLoading = true);
+
+      try {
+        // Verify admin password
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null && user.email != null) {
+          AuthCredential credential = EmailAuthProvider.credential(
+            email: user.email!, 
+            password: passwordController.text
+          );
+          
+          await user.reauthenticateWithCredential(credential);
+        } else {
+           throw Exception('Admin not logged in');
+        }
+
+        final newStatus = isRestricted ? 'approved' : 'restricted'; 
+        
+        await FirebaseFirestore.instance.collection('clubs').doc(_club!.id).update({
+          'status': newStatus,
+        });
+
+        setState(() {
+          _club = _club!.copyWith(status: newStatus); 
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text('Club has been $action\ed successfully')),
+        );
+      } catch (e) {
+        String errorMessage = 'Error: $e';
+        if (e.toString().contains('wrong-password')) {
+           errorMessage = 'Incorrect password';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+        );
+      } finally {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 }
 

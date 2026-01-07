@@ -228,15 +228,15 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
 
               // ... (The rest of your code remains exactly the same: Badge, Fields, Buttons) ...
               Container(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: widget.club.isApproved ? Colors.green[100] : Colors.orange[100],
+                  color: _getStatusColor(widget.club),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  widget.club.isApproved ? 'Verified Club' : 'Pending Approval',
+                  _getStatusText(widget.club),
                   style: TextStyle(
-                    color: widget.club.isApproved ? Colors.green[800] : Colors.orange[800],
+                    color: _getStatusTextColor(widget.club),
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -361,5 +361,26 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
       ),
       validator: validator,
     );
+  }
+
+  Color _getStatusColor(Club club) {
+    if (club.isRestricted) return Colors.red[100]!;
+    if (club.isApproved) return Colors.green[100]!;
+    if (club.isRejected) return Colors.red[100]!;
+    return Colors.orange[100]!;
+  }
+
+  Color _getStatusTextColor(Club club) {
+    if (club.isRestricted) return Colors.red[800]!;
+    if (club.isApproved) return Colors.green[800]!;
+    if (club.isRejected) return Colors.red[800]!;
+    return Colors.orange[800]!;
+  }
+
+  String _getStatusText(Club club) {
+    if (club.isRestricted) return 'Restricted';
+    if (club.isApproved) return 'Verified Club';
+    if (club.isRejected) return 'Rejected';
+    return 'Pending Approval';
   }
 }
