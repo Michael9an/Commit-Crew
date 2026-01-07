@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Required for direct query
 import 'dart:io';
 import 'dart:async';
 import 'package:qr_flutter/qr_flutter.dart'; 
@@ -18,8 +19,7 @@ import '../../services/review_service.dart';
 import 'report_screen.dart';
 import 'event_registration_screen.dart';
 import 'event_review_screen.dart';
-// Note: qr_scanner_page import is no longer strictly needed here if we removed the button,
-// but keeping it doesn't hurt if used elsewhere in this file.
+// import 'qr_scanner_page.dart'; // Not needed if button is removed
 
 // --- MAP IMPORTS ---
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -47,6 +47,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
 
   // --- STATE VARIABLES ---
   bool _isRegistered = false;
+  String? _registrationStatus; // New variable to track specific status ('registered' vs 'attended')
   bool _isCheckingRegistration = true;
 
   // --- MAP STATE VARIABLES ---
@@ -141,7 +142,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
   }
 
   // =========================================================
-  // REGISTRATION LOGIC
+  // REGISTRATION LOGIC (UPDATED)
   // =========================================================
   Future<void> _checkRegistrationStatus() async {
     try {
@@ -156,17 +157,32 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
         return;
       }
 
-      final isRegistered = await _registrationService.isUserRegistered(
-        widget.event.id,
-        userId: user.id,
-        email: user.email,
-      );
+      // --- CHANGED: Direct Query to include 'attended' status ---
+      // This prevents the UI from resetting to "Register" after they scan.
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('registers')
+          .where('eventId', isEqualTo: widget.event.id)
+          .where('userId', isEqualTo: user.id)
+          .where('status', whereIn: ['registered', 'attended']) // Accept both!
+          .limit(1)
+          .get();
 
-      if (mounted) {
-        setState(() {
-          _isRegistered = isRegistered;
-          _isCheckingRegistration = false;
-        });
+      if (querySnapshot.docs.isNotEmpty) {
+        final data = querySnapshot.docs.first.data();
+        if (mounted) {
+          setState(() {
+            _isRegistered = true;
+            _registrationStatus = data['status']; // Store exact status
+            _isCheckingRegistration = false;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _isRegistered = false;
+            _isCheckingRegistration = false;
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -493,22 +509,34 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
   // --- UPDATED BUTTON LOGIC ---
   Widget _buildBottomButton(bool isPastEvent) {
     if (_isRegistered) {
+      // 1. Determine Status Appearance
+      String label = "You are Registered";
+      Color color = Colors.green;
+      IconData icon = Icons.check_circle;
+
+      if (_registrationStatus == 'attended') {
+        label = "You have Attended";
+        color = Colors.blue; // Visual feedback that they are done
+        icon = Icons.verified;
+      }
+
       return Column(
         children: [
+          // Status Banner
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 16),
             decoration: BoxDecoration(
-              color: Colors.green[50],
+              color: color.withOpacity(0.1),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.green),
+              border: Border.all(color: color),
             ),
-            child: const Row(
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.check_circle, color: Colors.green),
-                SizedBox(width: 8),
-                Text("You are Registered", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                Icon(icon, color: color),
+                const SizedBox(width: 8),
+                Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -516,7 +544,9 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
           if (!isPastEvent) ...[
             const SizedBox(height: 12),
             
-            // --- FIX IS HERE: ONLY SHOW BUTTON IF METHOD IS ORGANIZER_SCAN ---
+            // --- FIX: Button Logic ---
+            // Only show View Ticket if event uses 'organizer_scan'.
+            // Removed redundant 'self_scan' button as per your request.
             if (widget.event.checkInMethod == 'organizer_scan')
               SizedBox(
                 width: double.infinity,
@@ -531,9 +561,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
-              )
-            // If checkInMethod is 'self_scan', we do NOT show any button here
-            // because there is already a global scanner button on the home page.
+              ),
           ],
         ],
       );
