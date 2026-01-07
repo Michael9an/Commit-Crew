@@ -171,63 +171,6 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                 ),
               ),
               SizedBox(height: 24),
-              
-               // Action Buttons
-              Row(
-                children: [
-                  // View Ticket Button
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () {
-                        // TODO: Navigate to ticket screen
-                        Navigator.of(context).pop();
-                        Navigator.of(context).pop(true);
-                      },
-                      style: OutlinedButton.styleFrom(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        side: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      child: Text(
-                        'View Ticket',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: 12),
-
-              // Continue Button
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                        Navigator.of(context).pop(true); // Return success
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 2,
-                      ),
-                      child: Text(
-                        'Continue',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
 
               // Booking/Registration Details Card
               Container(
@@ -459,18 +402,23 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
               // Action Buttons
               Row(
                 children: [
-                  // Save to Calendar Button
+                  // Save to Calendar Button (for free events) or View Ticket (for paid events)
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () {
-                        // TODO: Implement save to calendar functionality
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Event saved to calendar'),
-                            backgroundColor: Color(0xFF4CAF50),
-                          ),
-                        );
-                        Navigator.of(context).pop();
+                        if (isPaidEvent) {
+                          // TODO: Navigate to ticket screen for paid events
+                          Navigator.of(context).pop();
+                          Navigator.of(context).pop(true);
+                        } else {
+                          // Save to calendar for free events
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Event saved to calendar'),
+                              backgroundColor: Color(0xFF4CAF50),
+                            ),
+                          );
+                        }
                       },
                       style: OutlinedButton.styleFrom(
                         padding: EdgeInsets.symmetric(vertical: 12),
@@ -480,7 +428,7 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
                         side: BorderSide(color: Colors.grey[300]!),
                       ),
                       child: Text(
-                        'Save to Calendar',
+                        isPaidEvent ? 'View Ticket' : 'Save to Calendar',
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey[700],
@@ -575,16 +523,14 @@ class _EventRegistrationScreenState extends State<EventRegistrationScreen> {
             ),
           ),
         ).then((success) async {
+          // Payment gateway screen already handles payment completion and shows success dialog
+          // No need to show another dialog here
           if (success == true) {
-            // Payment was successful - update registration
-            await _registrationService.completePayment(
-              registerId: registerId,
-              amount: widget.event.price * widget.ticketQuantity,
-              paymentId: 'payment_${DateTime.now().millisecondsSinceEpoch}',
-            );
-
-            //show success dialog
-            _showSuccessDialog(context, true, registerId); // true = paid event
+            // Payment was successful - navigate away from registration screen
+            // Payment gateway already popped itself, so we just need to pop registration screen
+            if (mounted && Navigator.of(context).canPop()) {
+              Navigator.of(context).pop(true); // Return success to previous screen (event detail)
+            }
           }
         });
       } else {
