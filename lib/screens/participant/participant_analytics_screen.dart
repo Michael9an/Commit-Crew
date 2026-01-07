@@ -19,6 +19,7 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
   
   bool _isLoading = true;
   List<Register> _allRegistrations = [];
+  List<ParticipationActivity> _allActivities = [];
   Map<String, EventModel> _eventsMap = {};
   
   // Stats
@@ -30,6 +31,9 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
   // Filter for activities
   String _selectedPeriod = 'All Time';
   final List<String> _periods = ['Last 7 Days', 'Last 30 Days', 'Last 90 Days', 'All Time'];
+
+  String _selectedType = 'All';
+  final List<String> _types = ['All', 'Registration', 'Attend'];
 
   @override
   void initState() {
@@ -67,7 +71,28 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
       int upcoming = 0;
       final now = DateTime.now();
       
+      List<ParticipationActivity> activities = [];
+
       for (var r in registrations) {
+        // Create Registration activity
+        activities.add(ParticipationActivity(
+          date: r.registrationDate,
+          type: 'Registration',
+          registration: r,
+          event: events[r.eventId],
+        ));
+
+        // Create Attend activity if attended
+        if (r.status == 'attended' || r.attendedAt != null) {
+          final attendDate = r.attendedAt ?? r.registrationDate; // Fallback if attendedAt is null but status attended
+          activities.add(ParticipationActivity(
+            date: attendDate,
+            type: 'Attend',
+            registration: r,
+            event: events[r.eventId],
+          ));
+        }
+
         // Consider upcoming if status is registered/pending and event date is future
         // Or simply if event date is future regardless of status (unlikely if cancelled)
         final event = events[r.eventId];
@@ -85,9 +110,13 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
         }
       }
 
+      // Sort activities by date descending
+      activities.sort((a, b) => b.date.compareTo(a.date));
+
       if (mounted) {
         setState(() {
           _allRegistrations = registrations;
+          _allActivities = activities;
           _eventsMap = events;
           _totalRegistrations = totalReg;
           _attendedEvents = attended;
@@ -102,8 +131,15 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
     }
   }
 
-  List<Register> _getFilteredActivities() {
-    if (_selectedPeriod == 'All Time') return _allRegistrations;
+  List<ParticipationActivity> _getFilteredActivities() {
+    var activities = _allActivities;
+
+    // Filter by Type
+    if (_selectedType != 'All') {
+      activities = activities.where((a) => a.type == _selectedType).toList();
+    }
+
+    if (_selectedPeriod == 'All Time') return activities;
 
     final now = DateTime.now();
     int days = 0;
@@ -114,8 +150,8 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
 
     final cutoff = now.subtract(Duration(days: days));
     
-    return _allRegistrations.where((r) {
-      return r.registrationDate.isAfter(cutoff);
+    return activities.where((a) {
+      return a.date.isAfter(cutoff);
     }).toList();
   }
 
@@ -244,31 +280,67 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
   }
 
   Widget _buildRecentActivitiesHeader() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Column(
       children: [
-        const Text(
-          'Recent Activities',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Recent Activities',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
-        DropdownButton<String>(
-          value: _selectedPeriod,
-          underline: Container(),
-          icon: const Icon(Icons.keyboard_arrow_down),
-          items: _periods.map((String value) {
-            return DropdownMenuItem<String>(
-              value: value,
-              child: Text(value),
-            );
-          }).toList(),
-          onChanged: (newValue) {
-            setState(() {
-              _selectedPeriod = newValue!;
-            });
-          },
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                value: _selectedType,
+                decoration: InputDecoration(
+                   contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                   labelText: 'Type',
+                ),
+                items: _types.map((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value),
+                  );
+                }).toList(),
+                onChanged: (newValue) {
+                  setState(() {
+                    _selectedType = newValue!;
+                  });
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                value: _selectedPeriod,
+                decoration: InputDecoration(
+                   contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                   labelText: 'Period',
+                ),
+                items: _periods.map((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value),
+                  );
+                }).toList(),
+                onChanged: (newValue) {
+                  setState(() {
+                    _selectedPeriod = newValue!;
+                  });
+                },
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -282,7 +354,7 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 30),
           child: Text(
-            'No activities found for $_selectedPeriod',
+            'No activities found for selection',
             style: TextStyle(color: Colors.grey[600]),
           ),
         ),
@@ -295,17 +367,29 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
       itemCount: filtered.length,
       itemBuilder: (context, index) {
         final activity = filtered[index];
-        final event = _eventsMap[activity.eventId];
+        final event = activity.event;
+        
+        IconData icon;
+        Color iconColor;
+        String titlePrefix;
+
+        if (activity.type == 'Attend') {
+          icon = Icons.check_circle;
+          iconColor = Colors.green;
+        } else {
+          icon = Icons.event;
+          iconColor = Colors.blue;
+        }
         
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: ListTile(
             leading: CircleAvatar(
-              backgroundColor: Colors.blue.withOpacity(0.1),
+              backgroundColor: iconColor.withOpacity(0.1),
               child: Icon(
-                activity.status == 'attended' ? Icons.check_circle : Icons.event,
-                color: activity.status == 'attended' ? Colors.green : Colors.blue,
+                icon,
+                color: iconColor,
               ),
             ),
             title: Text(
@@ -317,23 +401,24 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Registered on ${DateFormat('MMM dd, yyyy').format(activity.registrationDate)}'),
-                if (activity.amountPaid > 0)
+                Text(DateFormat('MMM dd, yyyy').format(activity.date)),
+                if (activity.type == 'Registration' && activity.registration.amountPaid > 0)
                   Text(
-                    'Paid: \$${activity.amountPaid.toStringAsFixed(2)}',
+                    'Paid: \$${activity.registration.amountPaid.toStringAsFixed(2)}',
                     style: TextStyle(color: Colors.green[700], fontSize: 12),
                   ),
               ],
             ),
-            trailing: Chip(
+            trailing: activity.type == 'Registration' 
+              ? Chip(
               label: Text(
-                 activity.status[0].toUpperCase() + activity.status.substring(1),
+                 activity.registration.status[0].toUpperCase() + activity.registration.status.substring(1),
                  style: const TextStyle(fontSize: 10, color: Colors.white),
               ),
-              backgroundColor: _getStatusColor(activity.status),
+              backgroundColor: _getStatusColor(activity.registration.status),
               padding: EdgeInsets.zero,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
+            ) : null,
           ),
         );
       },
@@ -349,4 +434,18 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
       default: return Colors.grey;
     }
   }
+}
+
+class ParticipationActivity {
+  final DateTime date;
+  final String type; // 'Registration', 'Attend'
+  final Register registration;
+  final EventModel? event;
+
+  ParticipationActivity({
+    required this.date,
+    required this.type,
+    required this.registration,
+    this.event,
+  });
 }

@@ -8,6 +8,7 @@ import '../../models/report.dart';
 import '../../models/user.dart';
 import '../../models/club.dart';
 import '../../models/review.dart';
+import '../../models/register.dart';
 import '../../services/review_service.dart';
 
 class AnalyticsDetailScreen extends StatefulWidget {
@@ -126,6 +127,16 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         .map((doc) => ReviewModel.fromFirestore(doc.data(), doc.id))
         .toList();
 
+    // 2c. Get Registrations/Attendances
+    final registersSnapshot = await FirebaseFirestore.instance
+        .collection('registers')
+        .where('userId', isEqualTo: widget.id)
+        .get();
+    
+    var registrations = registersSnapshot.docs
+        .map((doc) => Register.fromFirestore(doc.data(), documentId: doc.id))
+        .toList();
+
     // Filter by date range if selected
     if (_selectedDateRange != null) {
       events = events.where((e) {
@@ -153,6 +164,24 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         return (reviewDate.isAtSameMomentAs(start) || reviewDate.isAfter(start)) && 
                (reviewDate.isAtSameMomentAs(end) || reviewDate.isBefore(end));
       }).toList();
+
+      registrations = registrations.where((r) {
+        final regDate = DateTime(r.registrationDate.year, r.registrationDate.month, r.registrationDate.day);
+        final start = DateTime(_selectedDateRange!.start.year, _selectedDateRange!.start.month, _selectedDateRange!.start.day);
+        final end = DateTime(_selectedDateRange!.end.year, _selectedDateRange!.end.month, _selectedDateRange!.end.day);
+        
+        bool inRange = (regDate.isAtSameMomentAs(start) || regDate.isAfter(start)) && 
+               (regDate.isAtSameMomentAs(end) || regDate.isBefore(end));
+        
+        // If it's an attendance, we should also check attendance date
+        if (r.status == 'attended' && r.attendedAt != null) {
+          final attendDate = DateTime(r.attendedAt!.year, r.attendedAt!.month, r.attendedAt!.day);
+          bool attendInRange = (attendDate.isAtSameMomentAs(start) || attendDate.isAfter(start)) && 
+                               (attendDate.isAtSameMomentAs(end) || attendDate.isBefore(end));
+          return inRange || attendInRange;
+        }
+        return inRange;
+      }).toList();
     }
 
     _events = events;
@@ -161,13 +190,31 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     // 3. Build Timeline
     List<TimelineItem> items = [];
     
-    // Add registrations
+    // Create a map for event names
+    final Map<String, String> eventNames = {};
     for (var event in events) {
+      eventNames[event.id] = event.name;
+    }
+    
+    // Add registrations and attendances from registrations list
+    for (var reg in registrations) {
+      final eventName = eventNames[reg.eventId] ?? 'Unknown Event';
+      
+      // Registration activity
       items.add(TimelineItem(
-        date: event.createdAt ?? DateTime.now(),
-        title: 'Registered for ${event.name}',
+        date: reg.registrationDate,
+        title: 'Registered for $eventName',
         type: 'registration',
       ));
+
+      // Attendance activity
+      if (reg.status == 'attended') {
+        items.add(TimelineItem(
+          date: reg.attendedAt ?? reg.registrationDate, // Fallback
+          title: 'Attended $eventName',
+          type: 'attend',
+        ));
+      }
     }
 
     for (var report in reports) {
@@ -874,7 +921,7 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
                             itemBuilder: (context) {
                               // Different filters for participant vs club
                               final filters = widget.role == 'participant'
-                                  ? ['All', 'Register', 'Report', 'Review']
+                                  ? ['All', 'Register', 'Attend', 'Report', 'Review']
                                   : ['All', 'Create Event', 'Edit Event'];
                               return filters.map((filter) => PopupMenuItem(
                                 value: filter,
@@ -901,6 +948,7 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         : _timeline.where((item) {
             // Participant filters
             if (_selectedActivityFilter == 'Register') return item.type == 'registration';
+            if (_selectedActivityFilter == 'Attend') return item.type == 'attend';
             if (_selectedActivityFilter == 'Report') return item.type.contains('report');
             if (_selectedActivityFilter == 'Review') return item.type.contains('review');
             // Club filters
@@ -1068,6 +1116,7 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     if (type.contains('review')) return Colors.amber[700]!;
     if (type.contains('report')) return Colors.red;
     if (type == 'registration') return Colors.blue;
+    if (type == 'attend') return Colors.green;
     if (type == 'create_event') return Colors.green;
     if (type == 'edit_event') return Colors.purple;
     return Colors.grey;

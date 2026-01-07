@@ -106,8 +106,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
 
         if (imageUrl != null) {
+          // Resolve URL if it's a Google Drive link
+          final resolvedUrl = await _storageService.resolveImageUrl(imageUrl);
+          
           final updatedUser = currentUser.copyWith(
-            photoUrl: imageUrl,
+            photoUrl: resolvedUrl ?? imageUrl,
             updatedAt: DateTime.now(),
           );
 
