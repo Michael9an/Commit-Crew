@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
 import 'dart:async';
-import 'package:qr_flutter/qr_flutter.dart'; // Added QR Import
+import 'package:qr_flutter/qr_flutter.dart'; 
 
 // --- MODELS ---
 import '../../models/event.dart';
@@ -18,6 +18,8 @@ import '../../services/review_service.dart';
 import 'report_screen.dart';
 import 'event_registration_screen.dart';
 import 'event_review_screen.dart';
+// Note: qr_scanner_page import is no longer strictly needed here if we removed the button,
+// but keeping it doesn't hurt if used elsewhere in this file.
 
 // --- MAP IMPORTS ---
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -488,6 +490,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     );
   }
 
+  // --- UPDATED BUTTON LOGIC ---
   Widget _buildBottomButton(bool isPastEvent) {
     if (_isRegistered) {
       return Column(
@@ -512,20 +515,25 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
           
           if (!isPastEvent) ...[
             const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _showMyTicket,
-                icon: const Icon(Icons.qr_code, size: 20),
-                label: const Text("View Ticket"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black87,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            
+            // --- FIX IS HERE: ONLY SHOW BUTTON IF METHOD IS ORGANIZER_SCAN ---
+            if (widget.event.checkInMethod == 'organizer_scan')
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _showMyTicket,
+                  icon: const Icon(Icons.qr_code, size: 20),
+                  label: const Text("View Ticket"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black87,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
                 ),
-              ),
-            ),
+              )
+            // If checkInMethod is 'self_scan', we do NOT show any button here
+            // because there is already a global scanner button on the home page.
           ],
         ],
       );

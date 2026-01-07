@@ -25,7 +25,6 @@ class PaymentGatewayScreen extends StatefulWidget {
 }
 
 class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
-  final _formKey = GlobalKey<FormState>();
   final RegistrationService _registrationService = RegistrationService();
   final StripeService _stripeService = StripeService();
 
@@ -35,7 +34,6 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
   TextEditingController _cvvController = TextEditingController();
   TextEditingController _cardHolderController = TextEditingController();
   bool _isProcessing = false;
-  bool _saveCardInfo = false;
 
   // Define colors
   static const Color primaryColor = Color(0xFFD32F2F);
@@ -53,13 +51,6 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
     },
   ];
 
-  // Test card numbers for Stripe sandbox
-  final List<Map<String, String>> _testCards = [
-    {'name': 'Visa Success', 'number': '4242424242424242'},
-    {'name': 'Visa Fail', 'number': '4000000000000002'},
-    {'name': 'Mastercard', 'number': '5555555555554444'},
-    {'name': 'Amex', 'number': '378282246310005'},
-  ];
 
   @override
   void initState() {
@@ -80,43 +71,7 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
     super.dispose();
   }
 
-  Future<Map<String, dynamic>> _createPaymentIntent() async {
-    try {
-      // Convert amount to cent (Stripe uses samllest currency unit)
-      final amount = (widget.totalAmount * 100).toInt();
-
-      // Create Payment intent
-      final paymentIntent = await _stripeService.createPaymentIntent(
-        amount: amount,
-        currency: 'myr',
-        description: 'Event: ${widget.event.name}',
-        metadata: {
-          'eventId': widget.event.id,
-          'ticketQuantity': widget.ticketQuantity.toString(),
-          'registrationId': widget.registrationData['registerId'] ?? '',
-        },
-      );
-
-      return {
-        'success': true,
-        'clientSecret': paymentIntent['clientSecret'],
-        'paymentIntentId': paymentIntent['id'],
-      };
-    } catch (error) {
-      print('Error creating payment intent: $error');
-      return {
-        'success': false,
-        'error': error.toString(),
-      };
-    }
-  }
-
   Future<void> _processStripePaymentWithSheet() async {
-    // Validate card details
-    if(!_validateCardDetails()) return; 
-      
-    if (!_formKey.currentState!.validate()) return;
-
     setState(() {
       _isProcessing = true;
     });
@@ -157,7 +112,7 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
             ),
           ),
           billingDetails: BillingDetails(
-            name: _cardHolderController.text,
+            name: widget.registrationData['fullName'],
             email: widget.registrationData['email'],
             phone: widget.registrationData['phone'],
           ),
@@ -225,105 +180,6 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
       print('Registration update error: $error');
       rethrow;
     }
-  }
-
-  bool _validateCardDetails() {
-    final cardNumber = _cardNumberController.text.replaceAll(' ', '');
-    final expiry = _expiryController.text;
-    final cvv = _cvvController.text;
-    final cardHolder = _cardHolderController.text;
-
-    // Card number validation
-    if (cardNumber.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please enter card number'),
-          backgroundColor: errorColor,
-        ),
-      );
-      return false;
-    }
-
-    if (cardNumber.length < 13 || cardNumber.length > 19) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please enter a valid card number (13-19 digits)'),
-        backgroundColor: errorColor,
-        ),
-      );
-      return false;
-    }
-
-    // Expiry date validation
-    if (!RegExp(r'^\d{2}/\d{2}$').hasMatch(expiry)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please enter expiry date in MM/YY format'),
-        ),
-      );
-      return false;
-    }
-
-    // Check if expiry date is in the future
-    final parts = expiry.split('/');
-    final month = int.tryParse(parts[0]);
-    final year = 2000 + int.tryParse(parts[1])!;
-    
-    if (month == null || month < 1 || month > 12) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please enter a valid month (01-12)'),
-          backgroundColor: errorColor,
-        ),
-      );
-      return false;
-    }
-    
-    final now = DateTime.now();
-    final currentYear = now.year;
-    final currentMonth = now.month;
-    
-    if (year < currentYear || (year == currentYear && month < currentMonth)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Card has expired'),
-          backgroundColor: errorColor,
-        ),
-      );
-      return false;
-    }
-
-     // CVV validation
-    if (cvv.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please enter CVV'),
-          backgroundColor: errorColor,
-        ),
-      );
-      return false;
-    }
-    
-    if (cvv.length < 3 || cvv.length > 4) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please enter a valid CVV (3-4 digits)'),
-          backgroundColor: errorColor,
-        ),
-      );
-      return false;
-    }
-
-    // Card holder name validation
-    if (cardHolder.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please enter card holder name'),
-          backgroundColor: errorColor,
-        ),
-      );
-      return false;
-    }
-  
-  return true;
   }
 
   void _showPaymentSuccessDialog(BuildContext context) {
@@ -657,331 +513,6 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
     );
   }
 
-  Widget _buildCreditCardForm() {
-    return Form(
-      key: _formKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(height: 20),
-          Text(
-            'Card Information',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Pay securely with your Visa, Mastercard, or AMEX',
-            style: TextStyle(
-              color: Colors.grey[600],
-              fontSize: 14,
-            ),
-          ),
-
-          // Test Cards Section (for sandbox)
-          SizedBox(height: 16),
-          Container(
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.amber[50],
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.amber[200]!),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.amber[800], size: 18),
-                    SizedBox(width: 8),
-                    Text(
-                      'Stripe Sandbox - Test Cards',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.amber[800],
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _testCards.map((card) {
-                    return GestureDetector(
-                      onTap: () {
-                        _cardNumberController.text = card['number']!;
-                        // Auto-fill other fields with test data
-                        if (card['number'] == '4242424242424242') {
-                          _expiryController.text = '12/34';
-                          _cvvController.text = '123';
-                          _cardHolderController.text = 'John Doe';
-                        }
-                      },
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.amber[100],
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.amber[300]!),
-                        ),
-                        child: Text(
-                          card['name']!,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.amber[800],
-                          )
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-                SizedBox(height: 8),
-                Text(
-                  'Tap to auto-fill test card details',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.amber[700],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(height: 16),
-          
-          // Card Number
-          TextFormField(
-            controller: _cardNumberController,
-            decoration: InputDecoration(
-              labelText: 'Card Number',
-              prefixIcon: Icon(Icons.credit_card, color: primaryColor),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              filled: true,
-              fillColor: Colors.grey[50],
-            ),
-            keyboardType: TextInputType.number,
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Please enter card number';
-              }
-              final cleaned = value.replaceAll(' ', '');
-              if (cleaned.length < 13 || cleaned.length > 19) {
-                return 'Please enter a valid card number';
-              }
-              return null;
-            },
-            onChanged: (value) {
-              // Format as 1234 5678 9012 3456
-              if (value.length > 0 && value.length % 5 == 0) {
-                if (value[value.length - 1] == ' ') {
-                  _cardNumberController.text = value.substring(0, value.length - 1);
-                } else {
-                  _cardNumberController.text = '$value ';
-                  _cardNumberController.selection = TextSelection.fromPosition(
-                    TextPosition(offset: _cardNumberController.text.length),
-                  );
-                }
-              }
-            },
-          ),
-          SizedBox(height: 16),
-          
-          Row(
-            children: [
-              // Expiry Date
-              Expanded(
-                child: TextFormField(
-                  controller: _expiryController,
-                  decoration: InputDecoration(
-                    labelText: 'MM/YY',
-                    prefixIcon: Icon(Icons.calendar_today, color: primaryColor),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey[50],
-                  ),
-                  keyboardType: TextInputType.datetime,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Enter expiry date';
-                    }
-                    if (!RegExp(r'^\d{2}/\d{2}$').hasMatch(value)) {
-                      return 'Format: MM/YY';
-                    }
-                    return null;
-                  },
-                  onChanged: (value) {
-                    // Auto-insert slash
-                    if (value.length == 2 && !value.contains('/')) {
-                      _expiryController.text = '$value/';
-                      _expiryController.selection = TextSelection.fromPosition(
-                        TextPosition(offset: _expiryController.text.length),
-                      );
-                    }
-                  },
-                ),
-              ),
-              SizedBox(width: 16),
-              
-              // CVV
-              Expanded(
-                child: TextFormField(
-                  controller: _cvvController,
-                  decoration: InputDecoration(
-                    labelText: 'CVV',
-                    prefixIcon: Icon(Icons.lock, color: primaryColor),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey[50],
-                  ),
-                  keyboardType: TextInputType.number,
-                  obscureText: true,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Enter CVV';
-                    }
-                    if (value.length < 3) {
-                      return 'Enter valid CVV';
-                    }
-                    return null;
-                  },
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 16),
-          
-          // Card Holder Name
-          TextFormField(
-            controller: _cardHolderController,
-            decoration: InputDecoration(
-              labelText: 'Card Holder Name',
-              prefixIcon: Icon(Icons.person, color: primaryColor),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              filled: true,
-              fillColor: Colors.grey[50],
-            ),
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Enter card holder name';
-              }
-              return null;
-            },
-          ),
-          SizedBox(height: 16),
-          
-          // Save Card Info
-          Row(
-            children: [
-              Checkbox(
-                value: _saveCardInfo,
-                onChanged: (value) {
-                  setState(() {
-                    _saveCardInfo = value ?? false;
-                  });
-                },
-                activeColor: primaryColor,
-              ),
-              Text(
-                'Save card information for future payments',
-                style: TextStyle(color: Colors.grey[600]),
-              ),
-            ],
-          ),
-          
-          // Accepted Cards
-          SizedBox(height: 16),
-          Text(
-            'Accepted Cards:',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
-            ),
-          ),
-          SizedBox(height: 8),
-          Row(
-            children: [
-              _buildCardLogo('Visa', 'Visa'),
-              SizedBox(width: 12),
-              _buildCardLogo('Mastercard', 'Mastercard'),
-              SizedBox(width: 12),
-              _buildCardLogo('AMEX', 'Amex'),
-            ], 
-          ),
-
-          // Stripe Powered By
-          SizedBox(height: 16),
-          Container(
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.verified, color: Colors.purple, size: 18),
-                SizedBox(width: 8),
-                Text(
-                  'Powered by Stripe',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.purple[600],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCardLogo(String name, String type) {
-    Color color;
-    switch (type) {
-      case 'Visa':
-        color = Colors.blue[900]!;
-        break;
-      case 'Mastercard':
-        color = Colors.red[700]!;
-        break;
-      case 'Amex':
-        color = Colors.blue[400]!;
-        break;
-      default:
-        color = Colors.grey;
-    }
-    
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Text(
-        name,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1243,14 +774,9 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
                   );
                 }).toList(),
               ),
-              
-              // Credit Card Form 
-              SizedBox(height: 24),
-              _buildCreditCardForm(),
-          
-              SizedBox(height: 32),
-              
+
               // Terms and Conditions
+              SizedBox(height: 32),
               Container(
                 padding: EdgeInsets.all(12),
                 decoration: BoxDecoration(
