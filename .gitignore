@@ -30,6 +30,8 @@
 .pub-cache/
 .pub/
 /build/
+.pubspec.lock
+.metadata
 
 # Web related
 lib/generated_plugin_registrant.dart
@@ -42,13 +44,14 @@ app.*.map.json
 
 # Android related
 **/android/**/gradle-wrapper.jar
-**/android/.gradle
+**/android/.gradle/
 **/android/captures/
 **/android/gradlew
 **/android/gradlew.bat
 **/android/local.properties
 **/android/generated/
 **/android/key.properties
+**/android/app/build/
 
 # iOS/XCode related
 **/ios/**/*.mode1v3

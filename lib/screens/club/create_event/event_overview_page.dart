@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../models/event.dart';
+import '../../../services/storage_service.dart';
 
 class EventOverviewPage extends StatelessWidget {
   final EventModel eventData;
@@ -24,11 +25,11 @@ class EventOverviewPage extends StatelessWidget {
         Container(
           width: double.infinity,
           color: Colors.orange[100],
-          padding: EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
           child: Row(
             children: [
               Icon(Icons.visibility, size: 16, color: Colors.orange[900]),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text(
                 "Preview Mode: This is how your event will appear",
                 style: TextStyle(fontSize: 12, color: Colors.orange[900], fontWeight: FontWeight.bold),
@@ -50,26 +51,26 @@ class EventOverviewPage extends StatelessWidget {
                 ),
 
                 Padding(
-                  padding: EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // 2. Title & Club Name
                       Text(
                         eventData.name.isEmpty ? "Event Name" : eventData.name,
-                        style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                       ),
-                      SizedBox(height: 4),
+                      const SizedBox(height: 4),
                       Text(
                         'by ${eventData.clubName}',
                         style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                       ),
                       
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
 
                       // 3. Price Tag
                       Container(
-                        padding: EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: eventData.isFree ? Colors.green[50] : Colors.blue[50],
                           borderRadius: BorderRadius.circular(8),
@@ -94,28 +95,53 @@ class EventOverviewPage extends StatelessWidget {
                         ),
                       ),
 
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
 
-                      // 4. Date & Time
-                      _buildDetailRow(Icons.calendar_today, _formatDate(eventData.date)),
-                      SizedBox(height: 8),
-                      _buildDetailRow(Icons.access_time, "${eventData.startTime} - ${eventData.endTime}"),
-                      SizedBox(height: 8),
-                      _buildDetailRow(Icons.location_on, eventData.location.isEmpty ? "Location" : eventData.location),
+                      // 4. Date & Time & Location
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey[200]!),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+                        ),
+                        child: Column(
+                          children: [
+                            _buildDetailRow(Icons.calendar_today, _formatDate(eventData.date)),
+                            const SizedBox(height: 12),
+                            _buildDetailRow(Icons.access_time, "${eventData.startTime} - ${eventData.endTime}"),
+                            const SizedBox(height: 12),
+                            _buildDetailRow(Icons.location_on, eventData.location.isEmpty ? "Location" : eventData.location),
+                            const SizedBox(height: 12),
+                            _buildDetailRow(Icons.people, 'Max Attendees: ${eventData.maxAttendees > 0 ? eventData.maxAttendees : 'Unlimited'}'),
+                            
+                            // --- NEW: Check-in Method Display ---
+                            const SizedBox(height: 12),
+                            _buildDetailRow(
+                              Icons.qr_code, 
+                              eventData.checkInMethod == 'self_scan' 
+                                ? 'Self Check-in (User scans QR)' 
+                                : 'Organizer scans User Ticket (PIN: ${eventData.scannerPin ?? "N/A"})'
+                            ),
+                            // ------------------------------------
+                          ],
+                        ),
+                      ),
 
-                      SizedBox(height: 24),
+                      const SizedBox(height: 24),
 
                       // 5. About Section
-                      Text('About Event', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      SizedBox(height: 8),
+                      const Text('About Event', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
                       Text(
                         eventData.description.isEmpty ? "No description provided." : eventData.description,
                         style: TextStyle(color: Colors.grey[600], height: 1.5),
                       ),
 
-                      SizedBox(height: 24),
+                      const SizedBox(height: 24),
 
-                      // 6. Info Cards (Attendees & Venue)
+                      // 6. Info Cards (Attendees & Category)
                       Row(
                         children: [
                           _buildInfoCard(
@@ -124,7 +150,7 @@ class EventOverviewPage extends StatelessWidget {
                             eventData.maxAttendees == 0 ? "Unlimited" : "${eventData.maxAttendees}",
                             Colors.red,
                           ),
-                          SizedBox(width: 16),
+                          const SizedBox(width: 16),
                           _buildInfoCard(
                             Icons.category,
                             'Category',
@@ -134,14 +160,14 @@ class EventOverviewPage extends StatelessWidget {
                         ],
                       ),
                       
-                      SizedBox(height: 24),
+                      const SizedBox(height: 24),
                       
                       // 7. Refund Policy (if paid)
                       if (!eventData.isFree && eventData.refundPolicy != null) ...[
-                        Text('Refund Policy', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        SizedBox(height: 4),
+                        const Text('Refund Policy', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
                         Text(eventData.refundPolicy!, style: TextStyle(color: Colors.grey[600])),
-                        SizedBox(height: 24),
+                        const SizedBox(height: 24),
                       ],
                     ],
                   ),
@@ -153,28 +179,28 @@ class EventOverviewPage extends StatelessWidget {
 
         // Bottom Action Bar
         Container(
-          padding: EdgeInsets.all(16),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.white,
-            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, -2))],
+            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: const Offset(0, -2))],
           ),
           child: Row(
             children: [
               Expanded(
                 child: OutlinedButton(
                   onPressed: isSubmitting ? null : onBack,
-                  style: OutlinedButton.styleFrom(minimumSize: Size(0, 50)),
-                  child: Text('Edit'),
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 50)),
+                  child: const Text('Edit'),
                 ),
               ),
-              SizedBox(width: 16),
+              const SizedBox(width: 16),
               Expanded(
                 child: ElevatedButton(
                   onPressed: isSubmitting ? null : onSubmit,
-                  style: ElevatedButton.styleFrom(minimumSize: Size(0, 50)),
+                  style: ElevatedButton.styleFrom(minimumSize: const Size(0, 50)),
                   child: isSubmitting 
-                    ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : Text('Publish Event'),
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Text('Publish Event'),
                 ),
               ),
             ],
@@ -192,13 +218,20 @@ class EventOverviewPage extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.image, size: 50, color: Colors.grey[400]),
-            Text("No Image Selected", style: TextStyle(color: Colors.grey)),
+            const Text("No Image Selected", style: TextStyle(color: Colors.grey)),
           ],
         ),
       );
     }
+    // Handle both local and network images for preview
     if (imageUrl.startsWith('http')) {
-      return Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_,__,___) => Container(color: Colors.grey[200]));
+      return FutureBuilder<String?>(
+        future: StorageService().resolveImageUrl(imageUrl),
+        builder: (context, snap) {
+          if (snap.hasData) return Image.network(snap.data!, fit: BoxFit.cover);
+          return Container(color: Colors.grey[200]);
+        }
+      );
     }
     return Image.file(File(imageUrl), fit: BoxFit.cover);
   }
@@ -207,7 +240,7 @@ class EventOverviewPage extends StatelessWidget {
     return Row(
       children: [
         Icon(icon, size: 18, color: Colors.grey[600]),
-        SizedBox(width: 8),
+        const SizedBox(width: 8),
         Expanded(child: Text(text, style: TextStyle(color: Colors.grey[800], fontSize: 15))),
       ],
     );
@@ -216,7 +249,7 @@ class EventOverviewPage extends StatelessWidget {
   Widget _buildInfoCard(IconData icon, String label, String value, Color color) {
     return Expanded(
       child: Container(
-        padding: EdgeInsets.all(12),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.grey[50],
           borderRadius: BorderRadius.circular(8),
@@ -225,9 +258,9 @@ class EventOverviewPage extends StatelessWidget {
         child: Column(
           children: [
             Icon(icon, size: 28, color: color),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-            Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black)),
+            Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black)),
           ],
         ),
       ),

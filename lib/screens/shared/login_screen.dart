@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/app_provider.dart';
+import '../scanner/scanner_login_page.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -276,6 +277,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   
+                  // Scannner Voulunteer
+                  TextButton(
+                    onPressed: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (c) => const ScannerLoginPage()));
+                    },
+                    child: const Text("Volunteer/Staff Scanner Login"),
+                  ),
+
                   // Forgot password
                   if (_isLogin) ...[
                     SizedBox(height: 16),

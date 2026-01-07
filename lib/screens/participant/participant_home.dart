@@ -24,28 +24,7 @@ class _ParticipantHomeScreenState extends State<ParticipantHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Event Discovery'),
-        actions: [
-          IconButton(icon: const Icon(Icons.search), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.notifications), onPressed: () {}),
-        ],
-      ),
       body: _screens[_currentIndex],
-      
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const QRScannerPage()),
-          );
-        },
-        icon: const Icon(Icons.qr_code_scanner),
-        label: const Text("Scan Attendance"),
-        backgroundColor: Colors.blue, 
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      // ---------------------------------------------
 
       bottomNavigationBar: RoleBasedBottomNav(
         selectedIndex: _currentIndex,

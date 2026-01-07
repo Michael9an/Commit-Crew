@@ -1,6 +1,10 @@
+// Updated
+
 import 'package:flutter/material.dart';
+import 'package:flutter_stripe/flutter_stripe.dart'hide Card;
 import '../../models/event.dart';
 import '../../services/registration_service.dart';
+import '../../services/stripe_service.dart';
 
 class PaymentGatewayScreen extends StatefulWidget {
   final EventModel event;
@@ -21,45 +25,42 @@ class PaymentGatewayScreen extends StatefulWidget {
 }
 
 class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
-  final _formKey = GlobalKey<FormState>();
   final RegistrationService _registrationService = RegistrationService();
+  final StripeService _stripeService = StripeService();
+
   String _selectedPaymentMethod = 'credit_card';
   TextEditingController _cardNumberController = TextEditingController();
   TextEditingController _expiryController = TextEditingController();
   TextEditingController _cvvController = TextEditingController();
   TextEditingController _cardHolderController = TextEditingController();
   bool _isProcessing = false;
-  bool _saveCardInfo = false;
 
   // Define colors
-  static const Color primaryColor = Color(0xFFD32F2F); // Red color matching your UI
+  static const Color primaryColor = Color(0xFFD32F2F);
   static const Color successColor = Color(0xFF4CAF50);
   static const Color errorColor = Color(0xFFF44336);
 
-  // Updated payment methods for Malaysia/Singapore
+  // Updated payment methods with Stripe for Malaysia/Singapore
   final List<Map<String, dynamic>> _paymentMethods = [
     {
       'id': 'credit_card',
       'name': 'Credit/Debit Card',
       'icon': Icons.credit_card,
       'color': primaryColor,
-      'description': 'Pay securely with your Visa, Mastercard, or AMEX',
-    },
-    {
-      'id': 'fpx',
-      'name': 'FPX',
-      'icon': Icons.account_balance,
-      'color': Colors.blue[800],
-      'description': 'Online banking through FPX',
-    },
-    {
-      'id': 'duitnow',
-      'name': 'DuitNow',
-      'icon': Icons.qr_code,
-      'color': Colors.green[700],
-      'description': 'Instant bank transfers via DuitNow',
+      'description': 'Pay securely with your Visa, Mastercard, or AMEX via Stripe',
     },
   ];
+
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeStripe();
+  }
+
+  Future<void> _initializeStripe() async {
+    await _stripeService.initialize();
+  }
 
   @override
   void dispose() {
@@ -68,6 +69,117 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
     _cvvController.dispose();
     _cardHolderController.dispose();
     super.dispose();
+  }
+
+  Future<void> _processStripePaymentWithSheet() async {
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      // Create payment with amount in cents
+      final amountInCents = (widget.totalAmount * 100).toInt();
+
+      final paymentIntent = await _stripeService.createPaymentIntent(
+        amount: amountInCents,
+        currency: 'myr',
+        description: 'Event: ${widget.event.name}',
+        metadata: {
+          'event_id': widget.event.id,
+          'ticket_quantity': widget.ticketQuantity.toString(),
+          'user_email': widget.registrationData['email'],
+          'register_id': widget.registrationData['registerId'],
+        },
+      );
+
+      print('Payment Intent Created: ${paymentIntent['id']}');
+      print('Client Secret: ${paymentIntent['client_secret']}');
+
+      // Initialize PaymentSheet
+      await Stripe.instance.initPaymentSheet(
+        paymentSheetParameters: SetupPaymentSheetParameters(
+          paymentIntentClientSecret: paymentIntent['client_secret'],
+          merchantDisplayName: 'Event Registration',
+          customerId: widget.registrationData['email'],
+          customerEphemeralKeySecret: null,
+          style: ThemeMode.light,
+          appearance: PaymentSheetAppearance(
+            colors: PaymentSheetAppearanceColors(
+              primary: primaryColor,
+              background: Colors.white,
+              componentBorder: Colors.grey[300]!,
+              componentDivider: Colors.grey[300]!,
+            ),
+          ),
+          billingDetails: BillingDetails(
+            name: widget.registrationData['fullName'],
+            email: widget.registrationData['email'],
+            phone: widget.registrationData['phone'],
+          ),
+        ),
+      );
+
+      await Stripe.instance.presentPaymentSheet();
+
+      // Update registration with payment info
+      await _completeRegistration(paymentIntent['id']);
+
+      // Show success dialog
+      _showPaymentSuccessDialog(context);
+
+    } on StripeException catch (e) {
+      String errorMessage = 'Payment failed';
+
+      if (e.error.code == FailureCode.Canceled) {
+        errorMessage = 'Payment was cancelled';
+      } else if (e.error.code == FailureCode.Failed) {
+        errorMessage = e.error.message ?? 'Payment failed';
+      } else if (e.error.code == FailureCode.Timeout) {
+        errorMessage = 'Payment timeout. Please try again';
+      }  
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: errorColor,
+        ),
+      );
+    } catch (error) {
+      print('Payment error: $error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Payment failed: ${error.toString()}'),
+          backgroundColor: errorColor,
+        ),
+      );
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
+  Future<void> _completeRegistration(String paymentId) async {
+    try {
+      final registerId = widget.registrationData['registerId'] as String?;
+
+      if (registerId == null || registerId.isEmpty) {
+        throw Exception('Register ID is missing');
+      }
+
+      final result = await _registrationService.completePayment(
+        registerId: registerId,
+        amount: widget.totalAmount,
+        paymentId: paymentId,
+      );
+
+      if (!result['success']) {
+        throw Exception(result['error']?.toString() ?? 'Failed to update registration');
+      } 
+    } catch (error) {
+      print('Registration update error: $error');
+      rethrow;
+    }
   }
 
   void _showPaymentSuccessDialog(BuildContext context) {
@@ -340,8 +452,7 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
                   // Save to Calendar Button
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () {
-                        // TODO: Implement save to calendar functionality
+                      onPressed: () { // TODO: Implement save to calendar functionality
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('Event saved to calendar'),
@@ -399,359 +510,6 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  //ONLY USE CARD PAYMENT (EXPLORE SANDBOX)
-
-  Future<void> _processPayment() async {
-    if (_selectedPaymentMethod == 'credit_card') {
-      if (!_formKey.currentState!.validate()) return;
-    }
-
-    setState(() {
-      _isProcessing = true;
-    });
-
-    try {
-      // Process payment with registration service
-      final result = await _registrationService.completePayment(
-        registerId: widget.registrationData['registerId'], 
-        amount: widget.totalAmount, 
-        paymentId: 'payment_&{DateTime.now().millisecondsSinceEpoch}',
-      );
-
-      if(result['success'] == true) {
-        // Show payment success dialog
-      _showPaymentSuccessDialog(context);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Payment failed: ${result['error']}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (error) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('Payment failed: $error'),
-            backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      setState(() {
-        _isProcessing = false;
-      });
-    }
-  }
-
-  Widget _buildCreditCardForm() {
-    return Form(
-      key: _formKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(height: 20),
-          Text(
-            'Card Information',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Pay securely with your Visa, Mastercard, or AMEX',
-            style: TextStyle(
-              color: Colors.grey[600],
-              fontSize: 14,
-            ),
-          ),
-          SizedBox(height: 16),
-          
-          // Card Number
-          TextFormField(
-            controller: _cardNumberController,
-            decoration: InputDecoration(
-              labelText: 'Card Number',
-              prefixIcon: Icon(Icons.credit_card, color: primaryColor),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              filled: true,
-              fillColor: Colors.grey[50],
-            ),
-            keyboardType: TextInputType.number,
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Please enter card number';
-              }
-              if (value.replaceAll(' ', '').length < 16) {
-                return 'Please enter a valid card number';
-              }
-              return null;
-            },
-            onChanged: (value) {
-              // Format as 1234 5678 9012 3456
-              if (value.length > 0 && value.length % 5 == 0) {
-                if (value[value.length - 1] == ' ') {
-                  _cardNumberController.text = value.substring(0, value.length - 1);
-                } else {
-                  _cardNumberController.text = '$value ';
-                  _cardNumberController.selection = TextSelection.fromPosition(
-                    TextPosition(offset: _cardNumberController.text.length),
-                  );
-                }
-              }
-            },
-          ),
-          SizedBox(height: 16),
-          
-          Row(
-            children: [
-              // Expiry Date
-              Expanded(
-                child: TextFormField(
-                  controller: _expiryController,
-                  decoration: InputDecoration(
-                    labelText: 'MM/YY',
-                    prefixIcon: Icon(Icons.calendar_today, color: primaryColor),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey[50],
-                  ),
-                  keyboardType: TextInputType.datetime,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Enter expiry date';
-                    }
-                    if (!RegExp(r'^\d{2}/\d{2}$').hasMatch(value)) {
-                      return 'Format: MM/YY';
-                    }
-                    return null;
-                  },
-                  onChanged: (value) {
-                    // Auto-insert slash
-                    if (value.length == 2 && !value.contains('/')) {
-                      _expiryController.text = '$value/';
-                      _expiryController.selection = TextSelection.fromPosition(
-                        TextPosition(offset: _expiryController.text.length),
-                      );
-                    }
-                  },
-                ),
-              ),
-              SizedBox(width: 16),
-              
-              // CVV
-              Expanded(
-                child: TextFormField(
-                  controller: _cvvController,
-                  decoration: InputDecoration(
-                    labelText: 'CVV',
-                    prefixIcon: Icon(Icons.lock, color: primaryColor),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey[50],
-                  ),
-                  keyboardType: TextInputType.number,
-                  obscureText: true,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Enter CVV';
-                    }
-                    if (value.length < 3) {
-                      return 'Enter valid CVV';
-                    }
-                    return null;
-                  },
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 16),
-          
-          // Card Holder Name
-          TextFormField(
-            controller: _cardHolderController,
-            decoration: InputDecoration(
-              labelText: 'Card Holder Name',
-              prefixIcon: Icon(Icons.person, color: primaryColor),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              filled: true,
-              fillColor: Colors.grey[50],
-            ),
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Enter card holder name';
-              }
-              return null;
-            },
-          ),
-          SizedBox(height: 16),
-          
-          // Save Card Info
-          Row(
-            children: [
-              Checkbox(
-                value: _saveCardInfo,
-                onChanged: (value) {
-                  setState(() {
-                    _saveCardInfo = value ?? false;
-                  });
-                },
-                activeColor: primaryColor,
-              ),
-              Text(
-                'Save card information for future payments',
-                style: TextStyle(color: Colors.grey[600]),
-              ),
-            ],
-          ),
-          
-          // Accepted Cards
-          SizedBox(height: 16),
-          Text(
-            'Accepted Cards:',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
-            ),
-          ),
-          SizedBox(height: 8),
-          Row(
-            children: [
-              _buildCardLogo('Visa', 'Visa'),
-              SizedBox(width: 12),
-              _buildCardLogo('Mastercard', 'Mastercard'),
-              SizedBox(width: 12),
-              _buildCardLogo('AMEX', 'Amex'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCardLogo(String name, String type) {
-    Color color;
-    switch (type) {
-      case 'Visa':
-        color = Colors.blue[900]!;
-        break;
-      case 'Mastercard':
-        color = Colors.red[700]!;
-        break;
-      case 'Amex':
-        color = Colors.blue[400]!;
-        break;
-      default:
-        color = Colors.grey;
-    }
-    
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Text(
-        name,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBankTransferMethod(String title, String description, IconData icon, Color color) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(height: 20),
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-        SizedBox(height: 8),
-        Text(
-          description,
-          style: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 14,
-          ),
-        ),
-        SizedBox(height: 16),
-        Container(
-          padding: EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-          child: Column(
-            children: [
-              Icon(
-                icon,
-                color: color,
-                size: 48,
-              ),
-              SizedBox(height: 12),
-              Text(
-                'Secure Bank Transfer',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'You will be redirected to your bank\'s website to complete the payment.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey[600]),
-              ),
-              SizedBox(height: 16),
-              Container(
-                padding: EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: color, size: 20),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Transaction may take 1-2 business days to process',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 
@@ -1016,29 +774,9 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
                   );
                 }).toList(),
               ),
-              
-              // Payment Form based on selected method
-              SizedBox(height: 24),
-              if (_selectedPaymentMethod == 'credit_card')
-                _buildCreditCardForm()
-              else if (_selectedPaymentMethod == 'fpx')
-                _buildBankTransferMethod(
-                  'FPX Payment',
-                  'Online banking through FPX',
-                  Icons.account_balance,
-                  Colors.blue[800]!,
-                )
-              else if (_selectedPaymentMethod == 'duitnow')
-                _buildBankTransferMethod(
-                  'DuitNow Payment',
-                  'Instant bank transfers via DuitNow',
-                  Icons.qr_code,
-                  Colors.green[700]!,
-                ),
-              
-              SizedBox(height: 32),
-              
+
               // Terms and Conditions
+              SizedBox(height: 32),
               Container(
                 padding: EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -1089,7 +827,7 @@ class _PaymentGatewayScreenState extends State<PaymentGatewayScreen> {
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: _isProcessing ? null : _processPayment,
+                  onPressed: _isProcessing ? null : _processStripePaymentWithSheet,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryColor,
                     shape: RoundedRectangleBorder(
