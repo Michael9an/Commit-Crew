@@ -1,3 +1,4 @@
+// event_discovery.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'dart:io';
@@ -6,6 +7,8 @@ import '../../models/event.dart';
 import '../../services/firestore_service.dart';
 import 'event_detail_screen.dart';
 import 'qr_scanner_page.dart';
+// Added from event_discovery1.dart
+import 'notification_screen.dart'; 
 
 // 1. CHANGE TO STATEFUL WIDGET
 class EventDiscoveryScreen extends StatefulWidget {
@@ -147,6 +150,19 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
               floating: true,
               pinned: true,
               snap: true,
+              // --- MERGED: NOTIFICATION BUTTON ---
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.notifications_none_rounded),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const NotificationScreen()),
+                    );
+                  },
+                ),
+              ],
+              // -----------------------------------
               bottom: TabBar(
                 controller: _tabController,
                 onTap: (index) => setState(() {}), // Refresh UI on tab change

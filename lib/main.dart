@@ -4,15 +4,24 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
+
+// --- SERVICE IMPORTS ---
 import 'services/firebase_init.dart';
+import 'services/review_service.dart'; // From main1.dart (HEAD)
+
+// --- PROVIDER IMPORTS ---
 import 'providers/app_provider.dart';
+
+// --- SCREEN IMPORTS ---
 import 'screens/role_home_router.dart';
 import 'screens/events_screen.dart';
 import 'screens/shared/clubs_screen.dart';  
 import 'screens/shared/profile_screen.dart';
 import 'screens/shared/login_screen.dart';
+import 'screens/participant/notification_screen.dart'; // From main1.dart (HEAD)
+
 import 'utils/theme.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 
 void main() async {
   // Ensure Flutter bindings are initialized
@@ -134,6 +143,8 @@ class _MyAppState extends State<MyApp> {
                   '/clubs_screen': (context) => const ClubsScreen(),
                   '/profile_screen': (context) => const ProfileScreen(),
                   '/login_screen': (context) => const LoginScreen(),
+                  // Added from main1.dart (HEAD)
+                  '/notification_screen': (context) => const NotificationScreen(),
                 },
 
                 // Handle unknown routes
@@ -155,7 +166,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   Widget _buildHomeScreen(AppProvider appProvider) {
-    // Show loading screen while AppProvider is initializing
+    // Show detailed loading screen while AppProvider is initializing
     if (appProvider.isLoading && !appProvider.isInitialized) {
       return Scaffold(
         body: Center(
@@ -171,7 +182,17 @@ class _MyAppState extends State<MyApp> {
       );
     }
 
-    // Show login screen or home based on auth state
-    return appProvider.isLoggedIn ? const RoleHomeRouter() : const LoginScreen();
+    // Logic merged from main1.dart (HEAD) to support Notifications
+    if (appProvider.isLoggedIn) {
+      // THIS STREAM PROVIDER MAKES NOTIFICATIONS WORK APP-WIDE
+      return StreamProvider<List<Map<String, dynamic>>>(
+        create: (_) => ReviewService().getNotifications(),
+        initialData: const [],
+        catchError: (_, __) => [], 
+        child: const RoleHomeRouter(),
+      );
+    } 
+    
+    return const LoginScreen();
   }
 }
