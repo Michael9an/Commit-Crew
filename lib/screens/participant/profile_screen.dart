@@ -346,10 +346,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       _buildProfileHeader(user),
                       const SizedBox(height: 24),
                       
-                      // Statistics
-                      _buildStatistics(user),
-                      const SizedBox(height: 32),
-                      
                       // Profile Info
                       _buildSectionHeader('PROFILE INFO'),
                       const SizedBox(height: 16),
@@ -489,56 +485,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               side: BorderSide(color: Colors.grey[300]!),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatistics(UserModel user) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _buildStatItem('Attended', '12'),
-        _buildStatItem('Upcoming', '3'),
-        _buildStatItem('Clubs', '${user.clubIds.length}'),
-      ],
-    );
-  }
-
-  Widget _buildStatItem(String label, String value) {
-    return Container(
-      width: 100,
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).primaryColor,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label.toUpperCase(),
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[400],
             ),
           ),
         ],
