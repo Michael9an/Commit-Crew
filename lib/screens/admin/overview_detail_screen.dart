@@ -5,6 +5,8 @@ import 'package:fl_chart/fl_chart.dart';
 import '../../models/event.dart';
 import '../../models/club.dart';
 import '../../models/register.dart';
+import '../../models/review.dart';
+import '../../models/report.dart';
 import '../../services/firestore_service.dart';
 import '../../widgets/charts/simple_line_chart_painter.dart';
 import 'analytics_detail_screen.dart';
@@ -120,6 +122,40 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
         .where('role', isEqualTo: 'participant')
         .get();
     
+    // safe load reviews
+    List<ReviewModel> reviews = [];
+    try {
+      final reviewsSnapshot = await FirebaseFirestore.instance.collection('reviews').get();
+      reviews = reviewsSnapshot.docs.map((doc) {
+        try {
+          return ReviewModel.fromFirestore(doc.data(), doc.id);
+        } catch (_) {
+          return null;
+        }
+      }).whereType<ReviewModel>()
+      .where((r) => _isInDateRange(r.createdAt))
+      .toList();
+    } catch (e) {
+      print('Error loading reviews for participants: $e');
+    }
+
+    // safe load reports
+    List<ReportModel> reports = [];
+    try {
+      final reportsSnapshot = await FirebaseFirestore.instance.collection('reports').get();
+      reports = reportsSnapshot.docs.map((doc) {
+        try {
+          return ReportModel.fromFirestore(doc.data(), doc.id);
+        } catch (_) {
+          return null;
+        }
+      }).whereType<ReportModel>()
+      .where((r) => _isInDateRange(r.createdAt))
+      .toList();
+    } catch (e) {
+      print('Error loading reports for participants: $e');
+    }
+    
     // Total participants
     final allParticipants = usersSnapshot.docs.toList();
     
@@ -133,6 +169,7 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
     Map<String, DateTime> participantLastActivity = {};
     Map<String, int> dailyInteraction = {};
     
+    // 1. Process Registrations
     for (var event in events) {
       if (event.createdAt != null) {
         final dateKey = DateFormat('yyyy-MM-dd').format(event.createdAt!);
@@ -147,6 +184,35 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
           participantLastActivity[attendeeId] = eventDate;
         }
       }
+    }
+
+    // 2. Process Reviews
+    for (var review in reviews) {
+      if (review.createdAt != null) {
+         final dateKey = DateFormat('yyyy-MM-dd').format(review.createdAt!);
+         dailyInteraction[dateKey] = (dailyInteraction[dateKey] ?? 0) + 1;
+      }
+
+      participantCounts[review.userId] = (participantCounts[review.userId] ?? 0) + 1;
+      final reviewDate = review.createdAt ?? DateTime.now();
+       if (participantLastActivity[review.userId] == null || 
+            reviewDate.isAfter(participantLastActivity[review.userId]!)) {
+          participantLastActivity[review.userId] = reviewDate;
+        }
+    }
+
+    // 3. Process Reports
+    for (var report in reports) {
+      // ReportModel guarantees non-null createdAt, but purely for safety
+       final dateKey = DateFormat('yyyy-MM-dd').format(report.createdAt);
+       dailyInteraction[dateKey] = (dailyInteraction[dateKey] ?? 0) + 1;
+
+      participantCounts[report.userId] = (participantCounts[report.userId] ?? 0) + 1;
+      final reportDate = report.createdAt;
+       if (participantLastActivity[report.userId] == null || 
+            reportDate.isAfter(participantLastActivity[report.userId]!)) {
+          participantLastActivity[report.userId] = reportDate;
+        }
     }
     
     // 1. Timeline Chart Data (Interaction)
@@ -167,8 +233,16 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
 
     for (var userId in sortedParticipantIds.take(5)) {
       try {
-        final userDoc = allParticipants.firstWhere((d) => d.id == userId);
-        final userData = userDoc.data();
+        final userExists = allParticipants.any((d) => d.id == userId);
+        Map<String, dynamic> userData = {};
+        if (userExists) {
+             userData = allParticipants.firstWhere((d) => d.id == userId).data();
+        } else {
+             // If we can't find in the 'role=participant' list, we should probably fetch it or display Unknown.
+             // But for now, display as Unknown or fallback
+             userData = {'name': 'Unknown User', 'email': 'N/A'};
+        }
+
         _listData.add({
           'id': userId,
           'name': userData['name'] ?? userData['email'] ?? 'Unknown',
@@ -1936,7 +2010,7 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      '${item['count']} events',
+                      '${item['count']} activities',
                       style: const TextStyle(
                         color: Colors.blue,
                         fontWeight: FontWeight.bold,
@@ -2268,7 +2342,7 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                 const Padding(
                   padding: EdgeInsets.all(16),
                   child: Text(
-                    'Most Active Participants',
+                    'Top Participants by Registrations',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -2335,7 +2409,7 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                 const Padding(
                   padding: EdgeInsets.all(16),
                   child: Text(
-                    'Top Active Clubs',
+                    'Top Clubs by Registrations',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
