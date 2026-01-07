@@ -198,6 +198,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       email: email,
                       role: role,
                       imageUrl: photoUrl,
+                      clubId: role == 'club' && clubIds.isNotEmpty ? clubIds.first : null,
                     ),
                   ),
                 );

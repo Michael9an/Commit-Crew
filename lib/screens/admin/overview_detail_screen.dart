@@ -1989,15 +1989,25 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
               itemBuilder: (context, index) {
                 final item = _listData[index];
                 return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.blue.withOpacity(0.1),
-                    backgroundImage: item['photoUrl'] != null && item['photoUrl'].isNotEmpty
-                        ? NetworkImage(item['photoUrl'])
-                        : null,
+                  leading: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      image: item['photoUrl'] != null && item['photoUrl'].isNotEmpty
+                          ? DecorationImage(
+                              image: NetworkImage(item['photoUrl']),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
+                    ),
                     child: item['photoUrl'] == null || item['photoUrl'].isEmpty
-                        ? Text(
-                            (item['name'] as String).isNotEmpty ? item['name'][0].toUpperCase() : '?',
-                            style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+                        ? Center(
+                            child: Text(
+                              (item['name'] as String).isNotEmpty ? item['name'][0].toUpperCase() : '?',
+                              style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+                            ),
                           )
                         : null,
                   ),
@@ -2528,15 +2538,25 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
       case OverviewType.activeParticipants:
       case OverviewType.activeClubs:
         return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: _themeColor.withOpacity(0.1),
-            backgroundImage: item['photoUrl'] != null && item['photoUrl'].isNotEmpty
-                ? NetworkImage(item['photoUrl'])
-                : null,
+          leading: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: _themeColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              image: item['photoUrl'] != null && item['photoUrl'].isNotEmpty
+                  ? DecorationImage(
+                      image: NetworkImage(item['photoUrl']),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
+            ),
             child: item['photoUrl'] == null || item['photoUrl'].isEmpty
-                ? Text(
-                    (item['name'] as String).isNotEmpty ? item['name'][0].toUpperCase() : '?',
-                    style: TextStyle(color: _themeColor, fontWeight: FontWeight.bold),
+                ? Center(
+                    child: Text(
+                      (item['name'] as String).isNotEmpty ? item['name'][0].toUpperCase() : '?',
+                      style: TextStyle(color: _themeColor, fontWeight: FontWeight.bold),
+                    ),
                   )
                 : null,
           ),
@@ -2564,6 +2584,7 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                   email: item['email'] ?? '',
                   role: item['role'],
                   imageUrl: item['photoUrl'],
+                  clubId: item['role'] == 'club' ? item['id'] : null,
                 ),
               ),
             );
@@ -2700,6 +2721,7 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                   email: '',
                   role: 'club',
                   imageUrl: item['photoUrl'],
+                  clubId: item['id'], // This is the club document ID
                 ),
               ),
             );

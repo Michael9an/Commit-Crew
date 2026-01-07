@@ -16,6 +16,7 @@ class AnalyticsDetailScreen extends StatefulWidget {
   final String email;
   final String role; // 'participant' or 'club'
   final String? imageUrl;
+  final String? clubId; // For club users, this is the actual club document ID
 
   const AnalyticsDetailScreen({
     Key? key,
@@ -24,6 +25,7 @@ class AnalyticsDetailScreen extends StatefulWidget {
     required this.email,
     required this.role,
     this.imageUrl,
+    this.clubId,
   }) : super(key: key);
 
   @override
@@ -193,30 +195,39 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
 
     _timeline = items;
     _stats = {
-      'EVENTS REGISTERED': events.length.toString(),
-      'REPORTS MADE': reports.length.toString(),
-      'REVIEWS SUBMITTED': reviews.length.toString(),
+      'Event ': events.length.toString(),
+      'Report': reports.length.toString(),
+      'Review': reviews.length.toString(),
     };
   }
 
   Future<void> _loadClubData() async {
+    // Determine the actual club ID to use
+    final actualClubId = widget.clubId ?? widget.id;
+    print('DEBUG: Loading club data for clubId: $actualClubId (widget.id: ${widget.id}, widget.clubId: ${widget.clubId})');
+    
     // 0. Get Club Details
     try {
-      final clubDoc = await FirebaseFirestore.instance.collection('clubs').doc(widget.id).get();
+      final clubDoc = await FirebaseFirestore.instance.collection('clubs').doc(actualClubId).get();
       if (clubDoc.exists) {
         final data = clubDoc.data()!;
         data['id'] = clubDoc.id;
         _club = Club.fromFirestore(data);
+        print('DEBUG: Club loaded: ${_club?.name}');
+      } else {
+        print('DEBUG: Club document not found for id: $actualClubId');
       }
     } catch (e) {
       print('Error fetching club details: $e');
     }
 
-    // 1. Get Events Created (where clubId == id)
+    // 1. Get Events Created (where clubId == actualClubId)
     final eventsSnapshot = await FirebaseFirestore.instance
         .collection('events')
-        .where('clubId', isEqualTo: widget.id)
+        .where('clubId', isEqualTo: actualClubId)
         .get();
+    
+    print('DEBUG: Found ${eventsSnapshot.docs.length} events for club $actualClubId');
 
     var events = eventsSnapshot.docs
         .map((doc) => EventModel.fromFirestore(doc.data(), doc.id))
@@ -246,17 +257,35 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         final end = (i + 10 < eventIds.length) ? i + 10 : eventIds.length;
         final chunk = eventIds.sublist(i, end);
         
-        final reportChunk = await FirebaseFirestore.instance
-            .collection('reports')
-            .where('eventId', whereIn: chunk)
-            .get();
-        reports.addAll(reportChunk.docs.map((doc) => ReportModel.fromFirestore(doc.data(), doc.id)));
+        try {
+          final reportChunk = await FirebaseFirestore.instance
+              .collection('reports')
+              .where('eventId', whereIn: chunk)
+              .get();
+          // Safe mapping for reports
+          for (var doc in reportChunk.docs) {
+            try {
+              reports.add(ReportModel.fromFirestore(doc.data(), doc.id));
+            } catch (e) {
+              print('Error parsing report: $e');
+            }
+          }
 
-        final reviewChunk = await FirebaseFirestore.instance
-            .collection('reviews')
-            .where('eventId', whereIn: chunk)
-            .get();
-        reviews.addAll(reviewChunk.docs.map((doc) => ReviewModel.fromFirestore(doc.data(), doc.id)));
+          final reviewChunk = await FirebaseFirestore.instance
+              .collection('reviews')
+              .where('eventId', whereIn: chunk)
+              .get();
+          // Safe mapping for reviews
+          for (var doc in reviewChunk.docs) {
+             try {
+                reviews.add(ReviewModel.fromFirestore(doc.data(), doc.id));
+             } catch (e) {
+                print('Error parsing review: $e');
+             }
+          }
+        } catch (e) {
+          print('Error fetching chunks for club data: $e');
+        }
       }
     }
 
@@ -285,32 +314,29 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
 
     // 3. Build Timeline
     List<TimelineItem> items = [];
+    int editCount = 0;
 
     for (var event in events) {
+      // Add create event activity
       items.add(TimelineItem(
         date: event.createdAt ?? DateTime.now(),
-        title: 'Created event ${event.name}',
-        type: 'creation',
+        title: 'Created event: ${event.name}',
+        type: 'create_event',
+        details: event.location,
       ));
-    }
-
-    for (var report in reports) {
-      items.add(TimelineItem(
-        date: report.createdAt,
-        title: 'Report received for ${report.eventName}',
-        type: 'report_received',
-      ));
-    }
-
-    for (var review in reviews) {
-      if (review.createdAt != null) {
-        items.add(TimelineItem(
-          date: review.createdAt!,
-          title: 'Review received on an event',
-          type: 'review_received',
-          details: '${review.comment} (${review.rating} stars)',
-          id: review.id,
-        ));
+      
+      // Add edit event activity if updatedAt exists and is different from createdAt
+      if (event.updatedAt != null && event.createdAt != null) {
+        final timeDiff = event.updatedAt!.difference(event.createdAt!).inMinutes.abs();
+        if (timeDiff > 1) { // Only count as edit if more than 1 minute difference
+          items.add(TimelineItem(
+            date: event.updatedAt!,
+            title: 'Edited event: ${event.name}',
+            type: 'edit_event',
+            details: event.location,
+          ));
+          editCount++;
+        }
       }
     }
 
@@ -318,9 +344,8 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
 
     _timeline = items;
     _stats = {
-      'EVENTS': events.length.toString(),
-      'REPORTS': reports.length.toString(),
-      'REVIEWS': reviews.length.toString(),
+      'Events': events.length.toString(),
+      'Edits': editCount.toString(),
     };
   }
 
@@ -623,17 +648,35 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
 
   IconData _getStatIcon(String key) {
     switch (key) {
+      // Participant stats
+      case 'Event ': return Icons.event_available;
+      case 'Report': return Icons.flag_outlined;
+      case 'Review': return Icons.rate_review_outlined;
+      // Club stats
+      case 'Events': return Icons.calendar_today;
+      case 'Edits': return Icons.edit_outlined;
+      case 'Members': return Icons.group_outlined;
+      // Legacy keys
       case 'EVENTS REGISTERED': return Icons.event_available;
       case 'REPORTS MADE': return Icons.report_problem;
       case 'EVENTS': return Icons.calendar_today;
       case 'REPORTS': return Icons.flag_outlined;
       case 'MEMBERS': return Icons.group_outlined;
-      default: return Icons.circle;
+      default: return Icons.analytics_outlined;
     }
   }
 
   Color _getStatColor(String key) {
     switch (key) {
+      // Participant stats
+      case 'Event ': return Colors.blue;
+      case 'Report': return Colors.orange;
+      case 'Review': return Colors.amber;
+      // Club stats  
+      case 'Events': return Colors.green;
+      case 'Edits': return Colors.purple;
+      case 'Members': return Colors.blue;
+      // Legacy keys
       case 'EVENTS REGISTERED': return Colors.blue;
       case 'REPORTS MADE': return Colors.orange;
       case 'EVENTS': return Colors.purple;
@@ -798,12 +841,10 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
                               });
                             },
                             itemBuilder: (context) {
-                              final filters = ['All', 'Registration', 'Creation', 'Report', 'Review'];
-                              if (widget.role == 'participant') {
-                                filters.remove('Creation');
-                              } else {
-                                filters.remove('Registration');
-                              }
+                              // Different filters for participant vs club
+                              final filters = widget.role == 'participant'
+                                  ? ['All', 'Register', 'Report', 'Review']
+                                  : ['All', 'Create Event', 'Edit Event'];
                               return filters.map((filter) => PopupMenuItem(
                                 value: filter,
                                 child: Text(filter),
@@ -814,8 +855,7 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
                     ),
                   ),
                 ),
-                if (_isSheetExpanded)
-                  _buildActivityList(),
+                _buildActivityList(), // Always build, don't hide based on expansion
               ],
             ),
           ),
@@ -828,10 +868,13 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     final filteredTimeline = _selectedActivityFilter == 'All'
         ? _timeline
         : _timeline.where((item) {
-            if (_selectedActivityFilter == 'Registration') return item.type == 'registration';
-            if (_selectedActivityFilter == 'Creation') return item.type == 'creation';
+            // Participant filters
+            if (_selectedActivityFilter == 'Register') return item.type == 'registration';
             if (_selectedActivityFilter == 'Report') return item.type.contains('report');
             if (_selectedActivityFilter == 'Review') return item.type.contains('review');
+            // Club filters
+            if (_selectedActivityFilter == 'Create Event') return item.type == 'create_event';
+            if (_selectedActivityFilter == 'Edit Event') return item.type == 'edit_event';
             return true;
           }).toList();
 
@@ -900,20 +943,9 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      if (item.details != null)
-                        Container(
-                          margin: const EdgeInsets.only(top: 8),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[50],
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border(
-                              top: BorderSide(color: Colors.grey[200]!),
-                              right: BorderSide(color: Colors.grey[200]!),
-                              bottom: BorderSide(color: Colors.grey[200]!),
-                              left: BorderSide(color: typeColor, width: 4),
-                            ),
-                          ),
+                      if (item.details != null && !item.type.contains('review'))
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4.0),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -1005,7 +1037,8 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     if (type.contains('review')) return Colors.amber[700]!;
     if (type.contains('report')) return Colors.red;
     if (type == 'registration') return Colors.blue;
-    if (type == 'creation') return Colors.purple;
+    if (type == 'create_event') return Colors.green;
+    if (type == 'edit_event') return Colors.purple;
     return Colors.grey;
   }
 
