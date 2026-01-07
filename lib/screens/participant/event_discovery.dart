@@ -1,4 +1,3 @@
-// event_discovery.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'dart:io';
@@ -7,10 +6,9 @@ import '../../models/event.dart';
 import '../../services/firestore_service.dart';
 import 'event_detail_screen.dart';
 import 'qr_scanner_page.dart';
-// Added from event_discovery1.dart
-import 'notification_screen.dart'; 
+// Merged: Added Notification Screen import from File 0
+import 'notification_screen.dart';
 
-// 1. CHANGE TO STATEFUL WIDGET
 class EventDiscoveryScreen extends StatefulWidget {
   const EventDiscoveryScreen({super.key});
 
@@ -18,30 +16,34 @@ class EventDiscoveryScreen extends StatefulWidget {
   State<EventDiscoveryScreen> createState() => _EventDiscoveryScreenState();
 }
 
-// 2. ADD THE MIXIN (SingleTickerProviderStateMixin)
 class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with SingleTickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
   final FirestoreService _firestoreService = FirestoreService();
+
+  // --- STATE MANAGEMENT (From File 1) ---
+  List<EventModel> _events = [];
+  bool _isLoading = true; // Only true on FIRST load
   bool _isFabExtended = true;
 
   // --- FILTER STATE ---
-  late TabController _tabController; // Now this will work because we are in a State class
+  late TabController _tabController;
   String _selectedCategory = 'All';
-  String _selectedTimeFilter = 'All'; 
+  String _selectedTimeFilter = 'All';
 
   final List<String> _categories = [
-    'All', 'Technology', 'Sports', 'Music', 'Arts', 
+    'All', 'Technology', 'Sports', 'Music', 'Arts',
     'Business', 'Education', 'Social', 'Workshop', 'Gaming', 'Health'
   ];
 
   @override
   void initState() {
     super.initState();
-    // 3. INITIALIZE TAB CONTROLLER
-    // 'vsync: this' works because of the Mixin above
     _tabController = TabController(length: 2, vsync: this);
     
-    // Listen to scroll changes to toggle FAB state
+    // Initial Load (From File 1)
+    _loadEvents(isInitialLoad: true);
+
+    // FAB scroll listener
     _scrollController.addListener(() {
       if (_scrollController.position.userScrollDirection == ScrollDirection.reverse) {
         if (_isFabExtended) setState(() => _isFabExtended = false);
@@ -54,62 +56,72 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
   @override
   void dispose() {
     _scrollController.dispose();
-    _tabController.dispose(); // Don't forget to dispose
+    _tabController.dispose();
     super.dispose();
   }
 
-  // --- FILTER LOGIC ---
-  List<EventModel> _processEvents(List<EventModel> allEvents) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day); 
-
-    // 1. Separate by Tab (Upcoming vs Past)
-    List<EventModel> tabEvents;
-    
-    // Check tab index. Note: We use _tabController.index in build, but setState updates UI
-    if (_tabController.index == 0) {
-      // Upcoming Tab: Events today or in future
-      tabEvents = allEvents.where((e) {
-         if (e.date == null) return false;
-         // Parse date safely
-         try {
-           final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date!));
-           return !eDate.isBefore(today); 
-         } catch (e) { return false; }
-      }).toList();
-      
-      // Sort: Nearest date first
-      tabEvents.sort((a, b) {
-        final d1 = int.tryParse(a.date ?? '0') ?? 0;
-        final d2 = int.tryParse(b.date ?? '0') ?? 0;
-        return d1.compareTo(d2);
-      });
-    } else {
-      // Past Tab: Events strictly before today
-      tabEvents = allEvents.where((e) {
-         if (e.date == null) return false;
-         try {
-           final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date!));
-           return eDate.isBefore(today);
-         } catch (e) { return false; }
-      }).toList();
-
-      // Sort: Most recent past event first
-      tabEvents.sort((a, b) {
-        final d1 = int.tryParse(a.date ?? '0') ?? 0;
-        final d2 = int.tryParse(b.date ?? '0') ?? 0;
-        return d2.compareTo(d1);
-      });
+  // --- DATA LOADING LOGIC (NO FLASHING - From File 1) ---
+  Future<void> _loadEvents({bool isInitialLoad = false}) async {
+    if (isInitialLoad) {
+      setState(() => _isLoading = true);
     }
 
-    // 2. Apply Category & Time Filters
+    try {
+      // Fetch 1 snapshot of data (No StreamBuilder = No Flashing)
+      final newEvents = await _firestoreService.getEvents().first;
+      if (mounted) {
+        setState(() {
+          _events = newEvents;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print("Error loading events: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // --- REFRESH HANDLER (From File 1) ---
+  Future<void> _handleRefresh() async {
+    // 1. Force the spinner to be visible for a moment (Premium Feel)
+    final minWait = Future.delayed(const Duration(milliseconds: 1000));
+    // 2. Load data in background (Old list stays visible)
+    final dataFuture = _loadEvents(isInitialLoad: false);
+    // 3. Wait for both
+    await Future.wait([minWait, dataFuture]);
+  }
+
+  // --- FILTER LOGIC (From File 1) ---
+  List<EventModel> _getFilteredEvents() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    List<EventModel> tabEvents;
+
+    if (_tabController.index == 0) { // Upcoming
+      tabEvents = _events.where((e) {
+        if (e.date == null) return false;
+        try {
+          final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date!));
+          return !eDate.isBefore(today);
+        } catch (e) { return false; }
+      }).toList();
+      tabEvents.sort((a, b) => (int.tryParse(a.date ?? '0') ?? 0).compareTo(int.tryParse(b.date ?? '0') ?? 0));
+    } else { // Past
+      tabEvents = _events.where((e) {
+        if (e.date == null) return false;
+        try {
+          final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date!));
+          return eDate.isBefore(today);
+        } catch (e) { return false; }
+      }).toList();
+      tabEvents.sort((a, b) => (int.tryParse(b.date ?? '0') ?? 0).compareTo(int.tryParse(a.date ?? '0') ?? 0));
+    }
+
     return tabEvents.where((e) {
-      // Category Filter
       if (_selectedCategory != 'All' && e.category != _selectedCategory) {
         return false;
       }
-
-      // Time Filter (Only applies to Upcoming tab mostly)
       if (_tabController.index == 0 && _selectedTimeFilter != 'All') {
         try {
           final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date!));
@@ -119,15 +131,47 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
           if (_selectedTimeFilter == 'Next 15 Days' && diff > 15) return false;
         } catch (e) { return false; }
       }
-
       return true;
     }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final displayEvents = _getFilteredEvents();
     return Scaffold(
       backgroundColor: Colors.grey[50],
+      // Standard AppBar (From File 1, but with Actions from File 0)
+      appBar: AppBar(
+        title: const Text('Discover Events'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 0,
+        // --- MERGED: NOTIFICATION BUTTON (From File 0) ---
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.notifications_none_rounded),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const NotificationScreen()),
+              );
+            },
+          ),
+        ],
+        // ------------------------------------------------
+        bottom: TabBar(
+          controller: _tabController,
+          onTap: (index) => setState(() {}),
+          indicatorColor: Colors.blue,
+          labelColor: Colors.blue,
+          unselectedLabelColor: Colors.grey,
+          tabs: const [
+            Tab(text: "Upcoming"),
+            Tab(text: "Past Events"),
+          ],
+        ),
+      ),
+
       floatingActionButton: _isFabExtended
           ? FloatingActionButton.extended(
               onPressed: _openScanner,
@@ -142,123 +186,89 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
             ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
 
-      body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) {
-          return [
-            SliverAppBar(
-              title: const Text('Discover Events'),
-              floating: true,
-              pinned: true,
-              snap: true,
-              // --- MERGED: NOTIFICATION BUTTON ---
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.notifications_none_rounded),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const NotificationScreen()),
-                    );
-                  },
-                ),
-              ],
-              // -----------------------------------
-              bottom: TabBar(
-                controller: _tabController,
-                onTap: (index) => setState(() {}), // Refresh UI on tab change
-                indicatorColor: Colors.blue,
-                labelColor: Colors.blue,
-                unselectedLabelColor: Colors.grey,
-                tabs: const [
-                  Tab(text: "Upcoming"),
-                  Tab(text: "Past Events"),
-                ],
-              ),
-            ),
-          ];
-        },
-        body: Column(
-          children: [
-            // Filter Bar
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    if (_tabController.index == 0) ...[
-                      _buildFilterChip('All', _selectedTimeFilter == 'All', () => setState(() => _selectedTimeFilter = 'All')),
-                      const SizedBox(width: 8),
-                      _buildFilterChip('Next 7 Days', _selectedTimeFilter == 'Next 7 Days', () => setState(() => _selectedTimeFilter = 'Next 7 Days')),
-                      const SizedBox(width: 8),
-                      _buildFilterChip('Next 15 Days', _selectedTimeFilter == 'Next 15 Days', () => setState(() => _selectedTimeFilter = 'Next 15 Days')),
-                      const VerticalDivider(width: 24, thickness: 1, color: Colors.grey),
-                    ],
+      // --- REFRESH INDICATOR (From File 1) ---
+      // Wraps the simple ListView. This is the most stable configuration.
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _handleRefresh,
+              color: Colors.blue,
+              backgroundColor: Colors.white,
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.all(16),
+                physics: const AlwaysScrollableScrollPhysics(), // Ensures bounce works
+                // Add 2 to count: Index 0 is FilterBar, Last index is Bottom Spacer
+                itemCount: displayEvents.length + 2,
+                itemBuilder: (context, index) {
 
-                    ..._categories.map((cat) {
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: _buildFilterChip(
-                          cat, 
-                          _selectedCategory == cat, 
-                          () => setState(() => _selectedCategory = cat),
-                          isCategory: true
+                  // --- 1. FILTER BAR (Index 0) ---
+                  if (index == 0) {
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            if (_tabController.index == 0) ...[
+                              _buildFilterChip('All', _selectedTimeFilter == 'All', () => setState(() => _selectedTimeFilter = 'All')),
+                              const SizedBox(width: 8),
+                              _buildFilterChip('Next 7 Days', _selectedTimeFilter == 'Next 7 Days', () => setState(() => _selectedTimeFilter = 'Next 7 Days')),
+                              const SizedBox(width: 8),
+                              _buildFilterChip('Next 15 Days', _selectedTimeFilter == 'Next 15 Days', () => setState(() => _selectedTimeFilter = 'Next 15 Days')),
+                              const VerticalDivider(width: 24, thickness: 1, color: Colors.grey),
+                            ],
+                            ..._categories.map((cat) {
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: _buildFilterChip(
+                                    cat,
+                                    _selectedCategory == cat,
+                                    () => setState(() => _selectedCategory = cat),
+                                    isCategory: true
+                                ),
+                              );
+                            }).toList(),
+                          ],
                         ),
-                      );
-                    }).toList(),
-                  ],
-                ),
-              ),
-            ),
-
-            // Event List
-            Expanded(
-              child: StreamBuilder<List<EventModel>>(
-                stream: _firestoreService.getEvents(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snapshot.hasError) {
-                    return Center(child: Text('Error: ${snapshot.error}'));
-                  }
-
-                  final allEvents = snapshot.data ?? [];
-                  final displayEvents = _processEvents(allEvents);
-
-                  if (displayEvents.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.event_busy, size: 64, color: Colors.grey[300]),
-                          const SizedBox(height: 16),
-                          Text(
-                            _tabController.index == 0 
-                                ? "No upcoming events found" 
-                                : "No past events found",
-                            style: TextStyle(color: Colors.grey[600])
-                          ),
-                        ],
                       ),
                     );
                   }
 
-                  return ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: displayEvents.length + 1,
-                    itemBuilder: (context, index) {
-                      if (index == displayEvents.length) {
-                        return const SizedBox(height: 80); 
-                      }
-                      return _buildEventCard(displayEvents[index], context);
-                    },
-                  );
+                  // --- 2. BOTTOM SPACER (Last Index) ---
+                  if (index == displayEvents.length + 1) {
+                    return const SizedBox(height: 80);
+                  }
+
+                  // --- 3. EVENT CARDS ---
+                  if (displayEvents.isEmpty) {
+                    // Fallback if list is empty but we are in the builder loop
+                    return _buildEmptyState();
+                  }
+
+                  return _buildEventCard(displayEvents[index - 1], context);
                 },
               ),
+            ),
+    );
+  }
+
+  // --- WIDGET HELPERS ---
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.only(top: 50),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.event_busy, size: 64, color: Colors.grey[300]),
+            const SizedBox(height: 16),
+            Text(
+                _tabController.index == 0
+                    ? "No upcoming events found"
+                    : "No past events found",
+                style: TextStyle(color: Colors.grey[600])
             ),
           ],
         ),
@@ -274,16 +284,16 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
       backgroundColor: Colors.white,
       selectedColor: isCategory ? Colors.purple[50] : Colors.blue[50],
       labelStyle: TextStyle(
-        color: isSelected 
-            ? (isCategory ? Colors.purple : Colors.blue) 
+        color: isSelected
+            ? (isCategory ? Colors.purple : Colors.blue)
             : Colors.grey[700],
         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
       ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         side: BorderSide(
-          color: isSelected 
-              ? (isCategory ? Colors.purple : Colors.blue) 
+          color: isSelected
+              ? (isCategory ? Colors.purple : Colors.blue)
               : Colors.grey[300]!,
         ),
       ),
@@ -300,7 +310,6 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
 
   Widget _buildEventCard(EventModel event, BuildContext context) {
     bool isEnded = false;
-    // Check if ended
     if (event.date != null) {
       try {
         final d = DateTime.fromMillisecondsSinceEpoch(int.parse(event.date!));
@@ -327,10 +336,9 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-             // Image Section
             Stack(
               children: [
-                 AspectRatio(
+                AspectRatio(
                   aspectRatio: 16 / 9,
                   child: _buildEventImage(event.bannerUrl),
                 ),
@@ -348,7 +356,7 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
                   ),
               ],
             ),
-            
+
             Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -434,9 +442,9 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
         }
         final resolved = snap.data;
         if (resolved == null || resolved.isEmpty) return _buildErrorImage();
-        
+
         if (resolved.startsWith('/')) {
-           return Image.file(File(resolved), fit: BoxFit.cover, errorBuilder: (_,__,___) => _buildErrorImage());
+          return Image.file(File(resolved), fit: BoxFit.cover, errorBuilder: (_,__,___) => _buildErrorImage());
         }
 
         return Image.network(resolved, fit: BoxFit.cover, errorBuilder: (_,__,___) => _buildErrorImage());
