@@ -6,7 +6,6 @@ import '../../models/event.dart';
 import '../../services/firestore_service.dart';
 import 'event_detail_screen.dart';
 import 'qr_scanner_page.dart';
-import 'notification_screen.dart'; // <--- ADDED IMPORT
 
 // 1. CHANGE TO STATEFUL WIDGET
 class EventDiscoveryScreen extends StatefulWidget {
@@ -148,18 +147,6 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
               floating: true,
               pinned: true,
               snap: true,
-              // --- ADDED ACTION BUTTON FOR NOTIFICATIONS ---
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.notifications_none_rounded),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const NotificationScreen()),
-                    );
-                  },
-                ),
-              ],
               bottom: TabBar(
                 controller: _tabController,
                 onTap: (index) => setState(() {}), // Refresh UI on tab change

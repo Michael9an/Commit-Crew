@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:fl_chart/fl_chart.dart'; 
+import 'package:fl_chart/fl_chart.dart'; // Ensure you added this package
 import '../../models/club.dart';
 import '../../services/firestore_service.dart';
 import '../../models/event.dart';
-// import '../../widgets/participant_list_sheet.dart'; // Removed: Replaced with full details screen
-import 'club_event_details_screen.dart'; // Ensure this matches your file structure
+import '../../widgets/participant_list_sheet.dart';
 
 class EventAnalyticsScreen extends StatefulWidget {
   final Club club;
@@ -23,16 +22,16 @@ class _EventAnalyticsScreenState extends State<EventAnalyticsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Analytics'),
+        title: Text('Analytics'),
         actions: [
           // Time Period Filter
           Padding(
             padding: const EdgeInsets.only(right: 16.0),
             child: DropdownButton<AnalyticsPeriod>(
               value: _selectedPeriod,
-              underline: const SizedBox(),
-              icon: const Icon(Icons.calendar_today, color: Colors.blue),
-              items: const [
+              underline: SizedBox(),
+              icon: Icon(Icons.calendar_today, color: Colors.blue),
+              items: [
                 DropdownMenuItem(
                   value: AnalyticsPeriod.last7Days,
                   child: Text('Last 7 Days'),
@@ -55,95 +54,81 @@ class _EventAnalyticsScreenState extends State<EventAnalyticsScreen> {
           ),
         ],
       ),
-      // Wrapped in RefreshIndicator for better UX
-      body: RefreshIndicator(
-        onRefresh: () async {
-          setState(() {}); // Triggers StreamBuilder to reload
-        },
-        child: StreamBuilder<ClubAnalytics>(
-          stream: _firestoreService.getClubAnalytics(widget.club.id, _selectedPeriod),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
+      body: StreamBuilder<ClubAnalytics>(
+        stream: _firestoreService.getClubAnalytics(widget.club.id, _selectedPeriod),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
 
-            if (snapshot.hasError) {
-              return const Center(child: Text("Error loading analytics"));
-            }
+          if (snapshot.hasError) {
+            return Center(child: Text("Error loading analytics"));
+          }
 
-            final data = snapshot.data ?? ClubAnalytics.empty();
+          final data = snapshot.data ?? ClubAnalytics.empty();
 
-            if (data.totalEvents == 0) {
-              return ListView( // Use ListView to allow RefreshIndicator to work on empty state
-                children: [
-                  SizedBox(
-                    height: MediaQuery.of(context).size.height * 0.7,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.bar_chart, size: 64, color: Colors.grey[300]),
-                        const SizedBox(height: 16),
-                        const Text("No data available for this period"),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            }
-
-            return SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(), // Ensures pull-to-refresh always works
-              padding: const EdgeInsets.all(16),
+          if (data.totalEvents == 0) {
+            return Center(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // 1. Summary Cards
-                  Row(
-                    children: [
-                      _buildSummaryCard(
-                        'Total Attendees',
-                        '${data.totalAttendance}',
-                        Icons.people,
-                        Colors.blue,
-                      ),
-                      const SizedBox(width: 12),
-                      _buildSummaryCard(
-                        'Revenue',
-                        '\$${data.totalRevenue.toStringAsFixed(2)}', // Updated to 2 decimal places for accuracy
-                        Icons.attach_money,
-                        Colors.green,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-
-                  // 2. Attendance Chart
-                  const Text("Attendance Trend", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
-                  Container(
-                    height: 250,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10)],
-                    ),
-                    child: _buildLineChart(data.attendanceTrend),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // 3. Top Events List
-                  const Text("Top Performing Events", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 12),
-                  ...data.topEvents.map((event) => _buildTopEventTile(event)),
-                  
-                  const SizedBox(height: 40),
+                  Icon(Icons.bar_chart, size: 64, color: Colors.grey[300]),
+                  SizedBox(height: 16),
+                  Text("No data available for this period"),
                 ],
               ),
             );
-          },
-        ),
+          }
+
+          return SingleChildScrollView(
+            padding: EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 1. Summary Cards
+                Row(
+                  children: [
+                    _buildSummaryCard(
+                      'Total Attendees',
+                      '${data.totalAttendance}',
+                      Icons.people,
+                      Colors.blue,
+                    ),
+                    SizedBox(width: 12),
+                    _buildSummaryCard(
+                      'Revenue',
+                      '\$${data.totalRevenue.toStringAsFixed(0)}',
+                      Icons.attach_money,
+                      Colors.green,
+                    ),
+                  ],
+                ),
+                SizedBox(height: 24),
+
+                // 2. Attendance Chart
+                Text("Attendance Trend", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                SizedBox(height: 16),
+                Container(
+                  height: 250,
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)],
+                  ),
+                  child: _buildLineChart(data.attendanceTrend),
+                ),
+
+                SizedBox(height: 24),
+
+                // 3. Top Events List
+                Text("Top Performing Events", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                SizedBox(height: 12),
+                ...data.topEvents.map((event) => _buildTopEventTile(event)),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -153,7 +138,7 @@ class _EventAnalyticsScreenState extends State<EventAnalyticsScreen> {
   Widget _buildSummaryCard(String title, String value, IconData icon, Color color) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: color.withOpacity(0.1),
           borderRadius: BorderRadius.circular(16),
@@ -163,8 +148,8 @@ class _EventAnalyticsScreenState extends State<EventAnalyticsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(icon, color: color, size: 28),
-            const SizedBox(height: 12),
-            Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87)),
+            SizedBox(height: 12),
+            Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87)),
             Text(title, style: TextStyle(color: Colors.grey[700], fontSize: 13)),
           ],
         ),
@@ -176,23 +161,19 @@ class _EventAnalyticsScreenState extends State<EventAnalyticsScreen> {
     return Card(
       elevation: 0,
       color: Colors.grey[50],
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12), 
         side: BorderSide(color: Colors.grey[200]!)
       ),
       child: ListTile(
-        // UPDATED: Navigate to Full Details Screen instead of simple list
-        // This allows Access to Export, Scanner, and Management tools
+        // Add functionality to open the list
         onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ClubEventDetailsScreen(
-                event: event,
-                club: widget.club,
-              ),
-            ),
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true, // Needed for full height sheet
+            backgroundColor: Colors.transparent,
+            builder: (context) => ParticipantListSheet(event: event),
           );
         },
         leading: CircleAvatar(
@@ -206,16 +187,16 @@ class _EventAnalyticsScreenState extends State<EventAnalyticsScreen> {
           event.name, 
           maxLines: 1, 
           overflow: TextOverflow.ellipsis, 
-          style: const TextStyle(fontWeight: FontWeight.bold)
+          style: TextStyle(fontWeight: FontWeight.bold)
         ),
-        subtitle: const Text('Tap to manage & export'),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+        subtitle: Text('Tap to view participants'), // Updated subtitle
+        trailing: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
       ),
     );
   }
 
   Widget _buildLineChart(List<AttendanceData> trendData) {
-    if (trendData.isEmpty) return const Center(child: Text("No trend data"));
+    if (trendData.isEmpty) return Center(child: Text("No trend data"));
 
     // Convert data to FlSpots
     List<FlSpot> spots = [];
@@ -225,11 +206,11 @@ class _EventAnalyticsScreenState extends State<EventAnalyticsScreen> {
 
     return LineChart(
       LineChartData(
-        gridData: const FlGridData(show: false),
+        gridData: FlGridData(show: false),
         titlesData: FlTitlesData(
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -240,11 +221,11 @@ class _EventAnalyticsScreenState extends State<EventAnalyticsScreen> {
                   if (index == 0 || index == trendData.length - 1 || index == (trendData.length / 2).round()) {
                     return Padding(
                       padding: const EdgeInsets.only(top: 8.0),
-                      child: Text(trendData[index].date, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                      child: Text(trendData[index].date, style: TextStyle(fontSize: 10, color: Colors.grey)),
                     );
                   }
                 }
-                return const SizedBox();
+                return SizedBox();
               },
             ),
           ),
@@ -257,7 +238,7 @@ class _EventAnalyticsScreenState extends State<EventAnalyticsScreen> {
             color: Colors.blue,
             barWidth: 3,
             isStrokeCapRound: true,
-            dotData: const FlDotData(show: false),
+            dotData: FlDotData(show: false),
             belowBarData: BarAreaData(
               show: true,
               color: Colors.blue.withOpacity(0.1),

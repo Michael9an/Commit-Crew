@@ -5,7 +5,7 @@ import '../../models/club.dart';
 import '../../services/firestore_service.dart';
 
 class AdminVerificationScreen extends StatelessWidget {
-  final FirestoreService firestoreService = FirestoreService();
+  final FirestoreService _firestoreService = FirestoreService();
 
   AdminVerificationScreen({super.key});
 
@@ -65,49 +65,65 @@ class AdminVerificationScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Pending Verifications')),
-      body: StreamBuilder<QuerySnapshot>(
-        // Query clubs that have submitted verification
-        stream: FirebaseFirestore.instance
-            .collection('clubs')
-            .where('verificationStatus', isEqualTo: 'submitted')
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator());
-          }
-
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Header with title
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
                 children: [
-                  Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
-                  SizedBox(height: 16),
-                  Text('All caught up! No pending requests.'),
+                  const Text(
+                    'Pending Verifications',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
                 ],
               ),
-            );
-          }
+            ),
+            // Content
+            Expanded(
+              child: StreamBuilder<QuerySnapshot>(
+                // Query clubs that have submitted verification or are pending
+                stream: FirebaseFirestore.instance
+                    .collection('clubs')
+                    .where('status', whereIn: ['pending', 'pending_approval'])
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-          final clubs = snapshot.data!.docs.map((doc) {
-            return Club.fromFirestore(doc.data() as Map<String, dynamic>);
-          }).toList();
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
+                          const SizedBox(height: 16),
+                          const Text('All caught up! No pending requests.'),
+                        ],
+                      ),
+                    );
+                  }
 
-          return ListView.builder(
-            padding: EdgeInsets.all(16),
-            itemCount: clubs.length,
-            itemBuilder: (context, index) {
-              final club = clubs[index];
-              return Card(
-                elevation: 3,
-                margin: EdgeInsets.only(bottom: 16),
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                  final clubs = snapshot.data!.docs.map((doc) {
+                    return Club.fromFirestore(doc.data() as Map<String, dynamic>);
+                  }).toList();
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: clubs.length,
+                    itemBuilder: (context, index) {
+                      final club = clubs[index];
+                      return Card(
+                        elevation: 3,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
                         children: [
                           CircleAvatar(
                             backgroundImage: club.imageUrl.isNotEmpty
@@ -133,26 +149,26 @@ class AdminVerificationScreen extends StatelessWidget {
                           ),
                         ],
                       ),
-                      SizedBox(height: 16),
-                      Text('Description:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 16),
+                      const Text('Description:', style: TextStyle(fontWeight: FontWeight.bold)),
                       Text(club.description, maxLines: 2, overflow: TextOverflow.ellipsis),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       
                       // View Document Button
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
-                          icon: Icon(Icons.description, color: Colors.blue),
-                          label: Text('View Verification Document'),
+                          icon: const Icon(Icons.description, color: Colors.blue),
+                          label: const Text('View Verification Document'),
                           onPressed: () => _launchDocument(context, club.approvalLetterUrl),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.blue,
-                            side: BorderSide(color: Colors.blue),
+                            side: const BorderSide(color: Colors.blue),
                           ),
                         ),
                       ),
                       
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       Row(
                         children: [
                           Expanded(
@@ -162,10 +178,10 @@ class AdminVerificationScreen extends StatelessWidget {
                                 backgroundColor: Colors.red[50],
                                 foregroundColor: Colors.red,
                               ),
-                              child: Text('Reject'),
+                              child: const Text('Reject'),
                             ),
                           ),
-                          SizedBox(width: 16),
+                          const SizedBox(width: 16),
                           Expanded(
                             child: ElevatedButton(
                               onPressed: () => _processVerification(context, club, true),
@@ -173,7 +189,7 @@ class AdminVerificationScreen extends StatelessWidget {
                                 backgroundColor: Colors.green,
                                 foregroundColor: Colors.white,
                               ),
-                              child: Text('Approve'),
+                              child: const Text('Approve'),
                             ),
                           ),
                         ],
@@ -182,9 +198,13 @@ class AdminVerificationScreen extends StatelessWidget {
                   ),
                 ),
               );
-            },
-          );
-        },
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
