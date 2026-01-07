@@ -665,37 +665,59 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
   }
 
   Future<void> _loadRevenueData() async {
-    final registrationsSnapshot = await FirebaseFirestore.instance.collection('registrations').get();
     final eventsSnapshot = await FirebaseFirestore.instance.collection('events').get();
     final clubsSnapshot = await FirebaseFirestore.instance.collection('clubs').get();
+    final usersSnapshot = await FirebaseFirestore.instance.collection('users').get();
     
-    final registrations = registrationsSnapshot.docs
-        .map((doc) => Register.fromFirestore({...doc.data(), 'id': doc.id}))
-        .where((r) => _isInDateRange(r.registrationDate) && r.paymentStatus == 'paid')
+    final events = eventsSnapshot.docs
+        .map((doc) => EventModel.fromFirestore(doc.data(), doc.id))
+        .where((e) => _isInDateRange(e.createdAt))
         .toList();
     
-    final eventsMap = {for (var doc in eventsSnapshot.docs) doc.id: doc.data()};
     final clubsMap = {for (var doc in clubsSnapshot.docs) doc.id: doc.data()};
+    final usersMap = {for (var doc in usersSnapshot.docs) doc.id: doc.data()};
     
     // Build chart data by date
     Map<String, double> dailyRevenue = {};
-    for (var reg in registrations) {
-      final dateKey = DateFormat('yyyy-MM-dd').format(reg.registrationDate);
-      dailyRevenue[dateKey] = (dailyRevenue[dateKey] ?? 0) + reg.amountPaid;
+    _totalRevenue = 0;
+    _totalCount = 0; // Total PAID registrations (attendees in paid events)
+
+    Map<String, double> clubRevenue = {};
+    Map<String, double> participantRevenue = {};
+
+    for (var event in events) {
+      if (event.createdAt != null) {
+        // Calculate revenue for this event
+        double eventRevenue = event.price * event.attendees.length;
+        
+        if (eventRevenue > 0) {
+           // Add to global total
+          _totalRevenue += eventRevenue;
+          _totalCount += event.attendees.length;
+          
+          // Add to daily trend (using event creation date as proxy)
+          final dateKey = DateFormat('yyyy-MM-dd').format(event.createdAt!);
+          dailyRevenue[dateKey] = (dailyRevenue[dateKey] ?? 0) + eventRevenue;
+          
+          // Add to club revenue
+          clubRevenue[event.clubId] = (clubRevenue[event.clubId] ?? 0) + eventRevenue;
+          
+          // Add to participant revenue
+          double pricePerHead = event.price;
+          for (var userId in event.attendees) {
+              participantRevenue[userId] = (participantRevenue[userId] ?? 0) + pricePerHead;
+          }
+        }
+      }
     }
     
     _chartData = dailyRevenue.entries.map((e) => {
       'date': DateTime.parse(e.key),
-      'count': e.value,
+      'count': e.value, // 'count' is used for the Y-axis value in the line chart
     }).toList()..sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
     
     // Group by club
-    Map<String, double> clubRevenue = {};
-    for (var reg in registrations) {
-      clubRevenue[reg.clubId] = (clubRevenue[reg.clubId] ?? 0) + reg.amountPaid;
-    }
-    
-    _listData = clubRevenue.entries.map((e) {
+    _topClubs = clubRevenue.entries.map((e) {
       final clubData = clubsMap[e.key];
       return {
         'id': e.key,
@@ -706,9 +728,23 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
       };
     }).toList();
     
-    _listData.sort((a, b) => (b['revenue'] as double).compareTo(a['revenue'] as double));
-    _totalRevenue = registrations.fold(0.0, (sum, r) => sum + r.amountPaid);
-    _totalCount = registrations.length;
+    _topClubs.sort((a, b) => (b['revenue'] as double).compareTo(a['revenue'] as double));
+    _topClubs = _topClubs.take(5).toList();
+
+    // Group by Participant
+    _topParticipants = participantRevenue.entries.map((e) {
+      final userData = usersMap[e.key];
+      return {
+        'id': e.key,
+        'name': userData?['name'] ?? 'Unknown User',
+        'photoUrl': userData?['imageUrl'],
+        'revenue': e.value,
+        'email': userData?['email'] ?? '',
+        'role': 'participant',
+      };
+    }).toList();
+    _topParticipants.sort((a, b) => (b['revenue'] as double).compareTo(a['revenue'] as double));
+    _topParticipants = _topParticipants.take(5).toList();
   }
 
   bool _isInDateRange(DateTime? date) {
@@ -1455,6 +1491,132 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Center(child: Text('Tap on chart for details', style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic))),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (widget.type == OverviewType.totalRevenue) {
+      return Column(
+        children: [
+           // 1. Revenue Timeline
+           Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Revenue Trend (RM)',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[800],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                 _chartData.isEmpty 
+                  ? const Center(child: Padding(padding: EdgeInsets.all(32), child: Text('No revenue data')))
+                  : Builder(
+                      builder: (context) {
+                        double maxY = 0;
+                        if (_chartData.isNotEmpty) {
+                          maxY = _chartData.map((e) => (e['count'] as num).toDouble()).reduce((a, b) => a > b ? a : b);
+                        }
+                        if (maxY <= 0) maxY = 100;
+                        final displayMaxY = maxY * 1.2;
+
+                        return SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Container(
+                            height: 400,
+                            width: _chartData.length * 60.0 < MediaQuery.of(context).size.width - 64
+                                ? MediaQuery.of(context).size.width - 64
+                                : _chartData.length * 60.0,
+                            padding: const EdgeInsets.fromLTRB(25, 20, 25, 10),
+                            child: LineChart(
+                              LineChartData(
+                                maxY: displayMaxY,
+                                gridData: const FlGridData(show: false),
+                                titlesData: FlTitlesData(
+                                  bottomTitles: AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: true,
+                                      getTitlesWidget: (value, meta) {
+                                        final index = value.toInt();
+                                        if (index >= 0 && index < _chartData.length) {
+                                          return Padding(
+                                            padding: const EdgeInsets.only(top: 8.0),
+                                            child: Text(
+                                              DateFormat('MM/dd').format(_chartData[index]['date']),
+                                              style: const TextStyle(fontSize: 10),
+                                            ),
+                                          );
+                                        }
+                                        return const Text('');
+                                      },
+                                      interval: 1,
+                                    ),
+                                  ),
+                                  leftTitles: AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: true,
+                                      interval: null,
+                                      reservedSize: 40,
+                                      getTitlesWidget: (value, meta) {
+                                        return Text(
+                                          value >= 1000 ? '${(value/1000).toStringAsFixed(1)}k' : value.toStringAsFixed(0),
+                                          style: const TextStyle(fontSize: 9),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                ),
+                                borderData: FlBorderData(show: false),
+                                lineBarsData: [
+                                  LineChartBarData(
+                                    spots: _chartData.asMap().entries.map((e) {
+                                      return FlSpot(e.key.toDouble(), (e.value['count'] as num).toDouble());
+                                    }).toList(),
+                                    isCurved: true,
+                                    preventCurveOverShooting: true,
+                                    color: Colors.teal,
+                                    barWidth: 3,
+                                    dotData: const FlDotData(show: true),
+                                    belowBarData: BarAreaData(
+                                      show: true,
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Colors.teal.withOpacity(0.3),
+                                          Colors.teal.withOpacity(0.0),
+                                        ],
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                minY: 0,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                    ),
               ],
             ),
           ),
@@ -2458,6 +2620,177 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                           ),
                         ),
                       ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Special case for Total Revenue (Participants & Clubs)
+    if (widget.type == OverviewType.totalRevenue) {
+       if (_topParticipants.isEmpty && _topClubs.isEmpty && _totalRevenue == 0) {
+        return Container(
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: const Center(
+            child: Text('No revenue data available', style: TextStyle(color: Colors.grey)),
+          ),
+        );
+      }
+
+      return Column(
+        children: [
+          // Top Participants by Money Spent
+          if (_topParticipants.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(bottom: 24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'Top Participant by Money Spent',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _topParticipants.length,
+                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey[200]),
+                  itemBuilder: (context, index) {
+                    final item = _topParticipants[index];
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.teal.withOpacity(0.1),
+                        backgroundImage: item['photoUrl'] != null && item['photoUrl'].isNotEmpty
+                            ? NetworkImage(item['photoUrl'])
+                            : null,
+                        child: item['photoUrl'] == null || item['photoUrl'].isEmpty
+                            ? const Icon(Icons.person, color: Colors.teal)
+                            : null,
+                      ),
+                      title: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(item['email'], style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                      trailing: Text(
+                        'RM ${(item['revenue'] as double).toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
+                      ),
+                      onTap: () {
+                         Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => AnalyticsDetailScreen(
+                              id: item['id'],
+                              name: item['name'],
+                              email: item['email'],
+                              role: 'participant',
+                              imageUrl: item['photoUrl'],
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          // Top Clubs by Money Revenue
+          if (_topClubs.isNotEmpty)
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                 BoxShadow(
+                  color: Colors.grey.withOpacity(0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'Top Club by Money Revenue',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _topClubs.length,
+                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey[200]),
+                  itemBuilder: (context, index) {
+                    final item = _topClubs[index];
+                    return ListTile(
+                      leading: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.teal.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          image: item['photoUrl'] != null && item['photoUrl'].isNotEmpty
+                              ? DecorationImage(
+                                  image: NetworkImage(item['photoUrl']),
+                                  fit: BoxFit.cover,
+                                )
+                              : null,
+                        ), 
+                        child: item['photoUrl'] == null || item['photoUrl'].isEmpty
+                            ? const Icon(Icons.business_center, color: Colors.teal, size: 20)
+                            : null,
+                      ),
+                      title: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.w600)),
+                      trailing: Text(
+                        'RM ${(item['revenue'] as double).toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
+                      ),
+                       onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => AnalyticsDetailScreen(
+                              id: item['id'],
+                              name: item['name'],
+                              email: '',
+                              role: 'club',
+                              imageUrl: item['photoUrl'],
+                              clubId: item['id'],
+                            ),
+                          ),
+                        );
+                      },
                     );
                   },
                 ),

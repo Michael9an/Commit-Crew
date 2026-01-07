@@ -315,8 +315,12 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     // 3. Build Timeline
     List<TimelineItem> items = [];
     int editCount = 0;
+    double estimatedRevenue = 0;
 
     for (var event in events) {
+      // Calculate revenue 
+      estimatedRevenue += (event.price * event.attendees.length);
+
       // Add create event activity
       items.add(TimelineItem(
         date: event.createdAt ?? DateTime.now(),
@@ -346,6 +350,7 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     _stats = {
       'Events': events.length.toString(),
       'Edits': editCount.toString(),
+      'Revenue': 'RM${estimatedRevenue.toStringAsFixed(2)}',
     };
   }
 
@@ -587,16 +592,40 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Row(
                           children: _stats.entries.map((entry) {
+                            final isRevenueCard = entry.key == 'Revenue';
                             return Expanded(
                               child: GestureDetector(
                                 onTap: () => _showMetricDetail(context, entry.key),
-                                child: Card(
-                                  elevation: 2,
-                                  shape: RoundedRectangleBorder(
+                                child: Container(
+                                  decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(12),
+                                    gradient: isRevenueCard
+                                        ? LinearGradient(
+                                            colors: [
+                                              _getStatColor(entry.key).withOpacity(0.15),
+                                              _getStatColor(entry.key).withOpacity(0.05),
+                                            ],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                          )
+                                        : null,
+                                    color: !isRevenueCard ? Colors.white : null,
+                                    border: isRevenueCard
+                                        ? Border.all(
+                                            color: _getStatColor(entry.key),
+                                            width: 2,
+                                          )
+                                        : null,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.08),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
                                   ),
                                   child: Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
                                     child: Column(
                                       children: [
                                         Icon(
@@ -656,6 +685,7 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
       case 'Events': return Icons.calendar_today;
       case 'Edits': return Icons.edit_outlined;
       case 'Members': return Icons.group_outlined;
+      case 'Revenue': return Icons.attach_money;
       // Legacy keys
       case 'EVENTS REGISTERED': return Icons.event_available;
       case 'REPORTS MADE': return Icons.report_problem;
@@ -676,6 +706,7 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
       case 'Events': return Colors.green;
       case 'Edits': return Colors.purple;
       case 'Members': return Colors.blue;
+      case 'Revenue': return Colors.teal;
       // Legacy keys
       case 'EVENTS REGISTERED': return Colors.blue;
       case 'REPORTS MADE': return Colors.orange;
@@ -1048,7 +1079,11 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
   }
 
   void _showMetricDetail(BuildContext context, String key) {
-    if (key == 'MEMBERS') return; // No chart for members yet
+    if (key == 'MEMBERS') return; // No chart for members
+    
+    // Disable popups for specific metrics based on role
+    if (widget.role == 'participant' && ['Event ', 'Report', 'Review'].contains(key)) return;
+    if (widget.role == 'club' && ['Events', 'Edits'].contains(key)) return;
 
     List<dynamic> data = [];
     Color color = _getStatColor(key);
@@ -1057,6 +1092,8 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
       data = _events;
     } else if (key == 'REPORTS MADE' || key == 'REPORTS') {
       data = _reports;
+    } else if (key == 'Revenue') {
+      data = _events; // Use events for revenue analysis
     }
 
     showModalBottomSheet(
@@ -1068,7 +1105,7 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
       builder: (context) => DraggableScrollableSheet(
         initialChildSize: 0.5,
         minChildSize: 0.3,
-        maxChildSize: 0.9,
+        maxChildSize: 0.95,
         expand: false,
         builder: (context, scrollController) {
           return SingleChildScrollView(
@@ -1094,12 +1131,339 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
                     style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 20),
-                  _buildMetricChart(key, data, color),
+                  if (key == 'Revenue')
+                    _buildRevenueAnalysis(color)
+                  else
+                    _buildMetricChart(key, data, color),
                 ],
               ),
             ),
           );
         }
+      ),
+    );
+  }
+
+  Widget _buildRevenueAnalysis(Color color) {
+    // Calculate revenue timeline
+    Map<DateTime, double> revenueByDate = {};
+    Map<String, double> participantSpending = {}; // participantId -> total spent
+    Map<String, double> clubRevenue = {}; // clubId -> total revenue
+    
+    for (var event in _events) {
+      final eventDate = event.createdAt ?? DateTime.now();
+      final day = DateTime(eventDate.year, eventDate.month, eventDate.day);
+      final eventRevenue = event.price * event.attendees.length;
+      
+      // Add to date timeline
+      revenueByDate[day] = (revenueByDate[day] ?? 0) + eventRevenue;
+      
+      // Track by club
+      if (event.clubId != null) {
+        clubRevenue[event.clubId!] = (clubRevenue[event.clubId!] ?? 0) + eventRevenue;
+      }
+    }
+    
+    // For participant, calculate their spending from registered events
+    if (widget.role == 'participant') {
+      double totalSpent = 0;
+      for (var event in _events) {
+        totalSpent += event.price;
+      }
+      participantSpending[widget.id] = totalSpent;
+    }
+
+    final sortedDates = revenueByDate.keys.toList()..sort();
+    
+    // Get top participants by spending (for club view)
+    List<MapEntry<String, double>> topParticipants = [];
+    if (widget.role == 'club') {
+      // Build participant spending from events
+      for (var event in _events) {
+        for (var participantId in event.attendees) {
+          participantSpending[participantId] = (participantSpending[participantId] ?? 0) + event.price;
+        }
+      }
+      topParticipants = participantSpending.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      topParticipants = topParticipants.take(5).toList();
+    }
+
+    // Get top clubs by revenue (for participant view)
+    List<MapEntry<String, double>> topClubs = clubRevenue.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    topClubs = topClubs.take(5).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Revenue Timeline Chart
+        if (sortedDates.isNotEmpty && widget.role != 'club') ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Revenue Timeline',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildRevenueTimelineChart(revenueByDate, sortedDates, color),
+          const SizedBox(height: 32),
+        ],
+
+        // Top Participants by Money Spent (for club view)
+        if (widget.role == 'club' && topParticipants.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Top Participants by Money Spent',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildTopParticipantsList(topParticipants),
+          const SizedBox(height: 32),
+        ],
+
+        // Top Clubs by Revenue (for participant view)
+        if (widget.role == 'participant' && topClubs.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Top Clubs by Revenue',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildTopClubsList(topClubs),
+          const SizedBox(height: 32),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRevenueTimelineChart(
+    Map<DateTime, double> revenueByDate,
+    List<DateTime> sortedDates,
+    Color color,
+  ) {
+    final spots = sortedDates.asMap().entries.map((e) {
+      return FlSpot(e.key.toDouble(), revenueByDate[e.value]!);
+    }).toList();
+
+    return Container(
+      height: 250,
+      padding: const EdgeInsets.only(right: 24),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Container(
+          width: sortedDates.length * 50.0 < MediaQuery.of(context).size.width
+              ? MediaQuery.of(context).size.width - 48
+              : sortedDates.length * 50.0,
+          padding: const EdgeInsets.only(left: 24, top: 24, bottom: 12),
+          child: LineChart(
+            LineChartData(
+              gridData: const FlGridData(show: false),
+              titlesData: FlTitlesData(
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    getTitlesWidget: (value, meta) {
+                      final index = value.toInt();
+                      if (index >= 0 && index < sortedDates.length) {
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(
+                            DateFormat('MM/dd').format(sortedDates[index]),
+                            style: const TextStyle(fontSize: 10),
+                          ),
+                        );
+                      }
+                      return const Text('');
+                    },
+                    interval: 1,
+                  ),
+                ),
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    interval: null,
+                    reservedSize: 50,
+                    getTitlesWidget: (value, meta) {
+                      return Text(
+                        'RM${value.toStringAsFixed(0)}',
+                        style: const TextStyle(fontSize: 9),
+                      );
+                    },
+                  ),
+                ),
+                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              ),
+              borderData: FlBorderData(show: false),
+              lineBarsData: [
+                LineChartBarData(
+                  spots: spots,
+                  isCurved: true,
+                  color: color,
+                  barWidth: 3,
+                  dotData: const FlDotData(show: true),
+                  belowBarData: BarAreaData(
+                    show: true,
+                    color: color.withOpacity(0.1),
+                  ),
+                ),
+              ],
+              minY: 0,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopParticipantsList(List<MapEntry<String, double>> topParticipants) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Column(
+        children: List.generate(topParticipants.length, (index) {
+          final entry = topParticipants[index];
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.grey[300],
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${index + 1}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FutureBuilder<DocumentSnapshot>(
+                        future: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(entry.key)
+                            .get(),
+                        builder: (context, snapshot) {
+                          String name = 'User #${index + 1}';
+                          if (snapshot.hasData && snapshot.data!.exists) {
+                            name = snapshot.data!['name'] ?? name;
+                          }
+                          return Text(
+                            name,
+                            style: const TextStyle(fontSize: 14),
+                          );
+                        },
+                      ),
+                    ),
+                    Text(
+                      'RM${entry.value.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (index < topParticipants.length - 1)
+                Divider(height: 1, color: Colors.grey[300]),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildTopClubsList(List<MapEntry<String, double>> topClubs) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Column(
+        children: List.generate(topClubs.length, (index) {
+          final entry = topClubs[index];
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.grey[300],
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${index + 1}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FutureBuilder<DocumentSnapshot>(
+                        future: FirebaseFirestore.instance
+                            .collection('clubs')
+                            .doc(entry.key)
+                            .get(),
+                        builder: (context, snapshot) {
+                          String name = 'Club #${index + 1}';
+                          if (snapshot.hasData && snapshot.data!.exists) {
+                            name = snapshot.data!['name'] ?? name;
+                          }
+                          return Text(
+                            name,
+                            style: const TextStyle(fontSize: 14),
+                          );
+                        },
+                      ),
+                    ),
+                    Text(
+                      'RM${entry.value.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (index < topClubs.length - 1)
+                Divider(height: 1, color: Colors.grey[300]),
+            ],
+          );
+        }),
       ),
     );
   }

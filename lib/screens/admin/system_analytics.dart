@@ -126,6 +126,19 @@ class _SystemAnalyticsScreenState extends State<SystemAnalyticsScreen> {
                           
                           const SizedBox(height: 16),
                           
+                          // Hero Card - Total Revenue
+                          GestureDetector(
+                            onTap: () => _navigateToDetail(OverviewType.totalRevenue),
+                            child: _buildHeroStatCard(
+                              'Total Revenue',
+                              'RM${(currentStats['totalRevenue'] ?? 0).toStringAsFixed(2)}',
+                              gradientColors: [Colors.teal.shade700, Colors.teal.shade300],
+                              icon: Icons.attach_money,
+                            ),
+                          ),
+
+                          const SizedBox(height: 16),
+                          
                           // Grid for other stats
                           GridView.count(
                             crossAxisCount: 2,
@@ -184,20 +197,24 @@ class _SystemAnalyticsScreenState extends State<SystemAnalyticsScreen> {
     );
   }
 
-  Widget _buildHeroStatCard(String title, String value) {
+  Widget _buildHeroStatCard(String title, String value, {List<Color>? gradientColors, IconData? icon}) {
+    final colors = gradientColors ?? [Colors.blue.shade800, Colors.blue.shade400];
+    final cardIcon = icon ?? Icons.people;
+    final shadowColor = colors.first.withOpacity(0.3);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.blue.shade800, Colors.blue.shade400],
+          colors: colors,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.blue.withOpacity(0.3),
+            color: shadowColor,
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -223,8 +240,8 @@ class _SystemAnalyticsScreenState extends State<SystemAnalyticsScreen> {
                   color: Colors.white.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(
-                  Icons.people,
+                child: Icon(
+                  cardIcon,
                   color: Colors.white,
                   size: 24,
                 ),
@@ -675,8 +692,9 @@ class _SystemAnalyticsScreenState extends State<SystemAnalyticsScreen> {
     }).toList();
   }
 
-  Map<String, int> _calculateStats(List<EventModel> events, List<Club> clubs, List<QueryDocumentSnapshot> reports) {
+  Map<String, dynamic> _calculateStats(List<EventModel> events, List<Club> clubs, List<QueryDocumentSnapshot> reports) {
     int totalRegistrations = 0;
+    double totalRevenue = 0.0;
     Set<String> uniqueParticipants = {};
     Set<String> activeClubIds = {};
 
@@ -684,6 +702,7 @@ class _SystemAnalyticsScreenState extends State<SystemAnalyticsScreen> {
       totalRegistrations += event.attendees.length;
       uniqueParticipants.addAll(event.attendees);
       activeClubIds.add(event.clubId);
+      totalRevenue += (event.price * event.attendees.length);
     }
 
     return {
@@ -692,6 +711,7 @@ class _SystemAnalyticsScreenState extends State<SystemAnalyticsScreen> {
       'activeParticipants': uniqueParticipants.length,
       'activeClubs': activeClubIds.length,
       'reportCount': reports.length,
+      'totalRevenue': totalRevenue,
     };
   }
 
