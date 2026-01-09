@@ -33,7 +33,6 @@ class RoleBasedBottomNav extends StatelessWidget {
       items: const [
         BottomNavigationBarItem(icon: Icon(Icons.explore), label: 'Discover'),
         BottomNavigationBarItem(icon: Icon(Icons.bookmark), label: 'Bookings'),
-        BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Analytics'),
         BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
       ],
     );
