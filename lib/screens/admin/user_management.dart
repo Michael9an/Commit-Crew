@@ -33,7 +33,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 if (!_isSearching)
-                  const Text('User Analytics', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold))
+                  const Text('User Management', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold))
                 else
                   Expanded(
                     child: TextField(

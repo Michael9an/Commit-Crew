@@ -1,5 +1,6 @@
 import 'package:event_app/models/event.dart';
 import 'package:event_app/models/register.dart';
+import 'package:event_app/models/participation_activity.dart';
 import 'package:event_app/services/event_service.dart';
 import 'package:event_app/services/registration_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -671,16 +672,3 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
   }
 }
 
-class ParticipationActivity {
-  final DateTime date;
-  final String type; // 'Registration', 'Attend'
-  final Register registration;
-  final EventModel? event;
-
-  ParticipationActivity({
-    required this.date,
-    required this.type,
-    required this.registration,
-    this.event,
-  });
-}

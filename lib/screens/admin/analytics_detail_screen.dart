@@ -40,6 +40,12 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
   Map<String, String> _stats = {};
   DateTimeRange? _selectedDateRange; // null means All Time
   
+  // Financial info
+  double _totalSpent = 0.0;
+  double _totalRevenue = 0.0;
+  List<Map<String, dynamic>> _paymentDetails = [];
+  List<Map<String, dynamic>> _topRevenueEvents = [];
+
   // New fields for detailed info
   UserModel? _user;
   Club? _club;
@@ -242,6 +248,34 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     items.sort((a, b) => b.date.compareTo(a.date));
 
     _timeline = items;
+    
+    // Calculate total spent and build payment details
+    double spent = 0.0;
+    List<Map<String, dynamic>> payments = [];
+    
+    final Map<String, String> pEventNames = {};
+    for (var e in events) {
+      pEventNames[e.id] = e.name;
+    }
+
+    // Also try to find event names from registrations if we have the event data somewhere
+    // For now, rely on events loaded. 
+
+    for (var reg in registrations) {
+       if (reg.amountPaid > 0) {
+         spent += reg.amountPaid;
+         payments.add({
+           'eventName': pEventNames[reg.eventId] ?? 'Event',
+           'amount': reg.amountPaid,
+           'date': reg.registrationDate,
+         });
+       }
+    }
+    payments.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
+    
+    _totalSpent = spent;
+    _paymentDetails = payments;
+
     _stats = {
       'Event ': events.length.toString(),
       'Report': reports.length.toString(),
@@ -364,10 +398,21 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     List<TimelineItem> items = [];
     int editCount = 0;
     double estimatedRevenue = 0;
+    List<Map<String, dynamic>> eventRevenues = [];
 
     for (var event in events) {
       // Calculate revenue 
-      estimatedRevenue += (event.price * event.attendees.length);
+      double eventRevenue = (event.price * event.attendees.length);
+      estimatedRevenue += eventRevenue;
+
+      if (eventRevenue > 0) {
+        eventRevenues.add({
+          'eventName': event.name,
+          'revenue': eventRevenue,
+          'attendees': event.attendees.length,
+          'date': event.createdAt,
+        });
+      }
 
       // Add create event activity
       items.add(TimelineItem(
@@ -394,11 +439,16 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
 
     items.sort((a, b) => b.date.compareTo(a.date));
 
+    // Sort by revenue
+    eventRevenues.sort((a, b) => (b['revenue'] as double).compareTo(a['revenue'] as double));
+    _topRevenueEvents = eventRevenues;
+
     _timeline = items;
+    _totalRevenue = estimatedRevenue;
     _stats = {
       'Events': events.length.toString(),
       'Edits': editCount.toString(),
-      'Revenue': 'RM${estimatedRevenue.toStringAsFixed(2)}',
+      // Revenue is now a separate card
     };
   }
 
@@ -536,7 +586,7 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.role == 'participant' ? 'Participant' : 'Club'),
+        title: Text(widget.role == 'participant' ? 'User Management' : 'Club'),
         centerTitle: false,
         actions: [
           Padding(
@@ -640,30 +690,14 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Row(
                           children: _stats.entries.map((entry) {
-                            final isRevenueCard = entry.key == 'Revenue';
                             return Expanded(
                               child: GestureDetector(
                                 onTap: () => _showMetricDetail(context, entry.key),
                                 child: Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 4),
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(12),
-                                    gradient: isRevenueCard
-                                        ? LinearGradient(
-                                            colors: [
-                                              _getStatColor(entry.key).withOpacity(0.15),
-                                              _getStatColor(entry.key).withOpacity(0.05),
-                                            ],
-                                            begin: Alignment.topLeft,
-                                            end: Alignment.bottomRight,
-                                          )
-                                        : null,
-                                    color: !isRevenueCard ? Colors.white : null,
-                                    border: isRevenueCard
-                                        ? Border.all(
-                                            color: _getStatColor(entry.key),
-                                            width: 2,
-                                          )
-                                        : null,
+                                    color: Colors.white,
                                     boxShadow: [
                                       BoxShadow(
                                         color: Colors.black.withOpacity(0.08),
@@ -706,6 +740,16 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
                             );
                           }).toList(),
                         ),
+                      ),
+                      
+                      const SizedBox(height: 16),
+
+                      // Financial Card
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                        child: widget.role == 'participant'
+                            ? _buildMoneySpentCard()
+                            : _buildRevenueCard(),
                       ),
 
                       const SizedBox(height: 24),
@@ -1797,6 +1841,203 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  Widget _buildMoneySpentCard() {
+    return GestureDetector(
+      onTap: () {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+          builder: (context) => DraggableScrollableSheet(
+            initialChildSize: 0.5,
+            minChildSize: 0.3,
+            maxChildSize: 0.9,
+            expand: false,
+            builder: (context, scrollController) {
+              return Column(
+                children: [
+                   Container(
+                     margin: const EdgeInsets.only(top: 8),
+                     height: 4, width: 40,
+                     decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                   ),
+                   const Padding(
+                     padding: EdgeInsets.all(16.0),
+                     child: Text("Payment History", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                   ),
+                   Expanded(
+                     child: _paymentDetails.isEmpty 
+                     ? const Center(child: Text("No payments recorded."))
+                     : ListView.separated(
+                        controller: scrollController,
+                        itemCount: _paymentDetails.length,
+                        separatorBuilder: (c, i) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final p = _paymentDetails[index];
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.green.withOpacity(0.1),
+                              child: const Icon(Icons.receipt_long, color: Colors.green, size: 20),
+                            ),
+                            title: Text(p['eventName'] ?? 'Event'),
+                            subtitle: Text(DateFormat('MMM d, yyyy • h:mm a').format(p['date'])),
+                            trailing: Text(
+                              'RM${(p['amount'] as double).toStringAsFixed(2)}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          );
+                        }
+                     ),
+                   ),
+                ],
+              );
+            }, 
+          ),
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.green.withOpacity(0.3), width: 1),
+           boxShadow: [
+              BoxShadow(
+                color: Colors.green.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+             Container(
+               padding: const EdgeInsets.all(10),
+               decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), shape: BoxShape.circle),
+               child: const Icon(Icons.account_balance_wallet, color: Colors.green, size: 24),
+             ),
+             const SizedBox(width: 16),
+             Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                  const Text("Money Spent", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600, fontSize: 12)),
+                  Text(
+                    'RM${_totalSpent.toStringAsFixed(2)}',
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
+                  ),
+               ],
+             ),
+             const Spacer(),
+             const Icon(Icons.chevron_right, color: Colors.grey),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRevenueCard() {
+    return GestureDetector(
+      onTap: () {
+         showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+          builder: (context) => DraggableScrollableSheet(
+            initialChildSize: 0.5,
+            minChildSize: 0.3,
+            maxChildSize: 0.9,
+            expand: false,
+            builder: (context, scrollController) {
+              return Column(
+                children: [
+                   Container(
+                     margin: const EdgeInsets.only(top: 8),
+                     height: 4, width: 40,
+                     decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                   ),
+                   const Padding(
+                     padding: EdgeInsets.all(16.0),
+                     child: Text("Top Revenue Events", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                   ),
+                   Expanded(
+                     child: _topRevenueEvents.isEmpty 
+                     ? const Center(child: Text("No revenue recorded."))
+                     : ListView.separated(
+                        controller: scrollController,
+                        itemCount: _topRevenueEvents.length,
+                        separatorBuilder: (c, i) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final e = _topRevenueEvents[index];
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.teal.withOpacity(0.1),
+                              child: Text(
+                                '${index + 1}',
+                                style: const TextStyle(color: Colors.teal, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            title: Text(e['eventName'] ?? 'Event'),
+                            subtitle: Text('${e['attendees']} attendees'),
+                            trailing: Text(
+                              'RM${(e['revenue'] as double).toStringAsFixed(2)}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          );
+                        }
+                     ),
+                   ),
+                ],
+              );
+            }, 
+          ),
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.teal.withOpacity(0.3), width: 1),
+           boxShadow: [
+              BoxShadow(
+                color: Colors.teal.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+             Container(
+               padding: const EdgeInsets.all(10),
+               decoration: BoxDecoration(color: Colors.teal.withOpacity(0.1), shape: BoxShape.circle),
+               child: const Icon(Icons.monetization_on, color: Colors.teal, size: 24),
+             ),
+             const SizedBox(width: 16),
+             Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                  const Text("Total Revenue", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600, fontSize: 12)),
+                  Text(
+                    'RM${_totalRevenue.toStringAsFixed(2)}',
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
+                  ),
+               ],
+             ),
+             const Spacer(),
+             const Icon(Icons.chevron_right, color: Colors.grey),
+          ],
+        ),
+      ),
+    );
   }
 }
 
