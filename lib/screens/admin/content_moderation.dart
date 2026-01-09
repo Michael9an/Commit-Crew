@@ -284,10 +284,6 @@ class _ContentModerationScreenState extends State<ContentModerationScreen> {
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, color: Colors.grey),
-                onPressed: () => _confirmDelete(r),
-              ),
               const Icon(Icons.chevron_right, color: Colors.grey),
             ],
           ),

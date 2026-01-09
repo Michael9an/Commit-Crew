@@ -130,7 +130,12 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
     if (confirm == true) {
       setState(() { _isSaving = true; });
       try {
-        await FirebaseFirestore.instance.collection('reports').doc(widget.report.id).delete();
+        // Soft delete: update status to 'deleted' so it still counts for analytics
+        await FirebaseFirestore.instance.collection('reports').doc(widget.report.id).update({
+          'status': 'deleted',
+          'resolvedAt': FieldValue.serverTimestamp(),
+        });
+        
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report deleted')));
           Navigator.pop(context);
@@ -210,12 +215,6 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Report Detail'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.delete),
-            onPressed: _deleteReport,
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -667,25 +666,26 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: r.status == 'resolved' ? Colors.green[50] : Colors.grey[100],
+                        color: r.status == 'resolved' ? Colors.green[50] : (r.status == 'deleted' ? Colors.red[50] : Colors.grey[100]),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: r.status == 'resolved' ? Colors.green.withOpacity(0.5) : Colors.grey.withOpacity(0.5),
+                          color: r.status == 'resolved' ? Colors.green.withOpacity(0.5) : (r.status == 'deleted' ? Colors.red.withOpacity(0.5) : Colors.grey.withOpacity(0.5)),
                         ),
                       ),
                       child: Column(
                         children: [
                           Icon(
-                            r.status == 'resolved' ? Icons.check_circle : Icons.cancel,
-                            color: r.status == 'resolved' ? Colors.green : Colors.grey,
+                            r.status == 'resolved' ? Icons.check_circle : (r.status == 'deleted' ? Icons.delete : Icons.cancel),
+                            color: r.status == 'resolved' ? Colors.green : (r.status == 'deleted' ? Colors.red : Colors.grey),
                             size: 32,
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            r.status == 'resolved' ? 'This report has been resolved' : 'This report has been dismissed',
+                            r.status == 'resolved' ? 'This report has been resolved' : 
+                            (r.status == 'deleted' ? 'This report has been deleted' : 'This report has been dismissed'),
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: r.status == 'resolved' ? Colors.green[800] : Colors.grey[800],
+                              color: r.status == 'resolved' ? Colors.green[800] : (r.status == 'deleted' ? Colors.red[800] : Colors.grey[800]),
                             ),
                           ),
                           const SizedBox(height: 16),
@@ -734,6 +734,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       case 'reviewing': return Colors.blue;
       case 'resolved': return Colors.green;
       case 'dismissed': return Colors.grey;
+      case 'deleted': return Colors.red;
       default: return Colors.black;
     }
   }
