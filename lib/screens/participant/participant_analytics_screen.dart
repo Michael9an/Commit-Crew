@@ -74,20 +74,20 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
       List<ParticipationActivity> activities = [];
 
       for (var r in registrations) {
-        // Create Registration activity
-        activities.add(ParticipationActivity(
-          date: r.registrationDate,
-          type: 'Registration',
-          registration: r,
-          event: events[r.eventId],
-        ));
-
-        // Create Attend activity if attended
+        // If attended, we only show the "Attend" activity
         if (r.status == 'attended' || r.attendedAt != null) {
-          final attendDate = r.attendedAt ?? r.registrationDate; // Fallback if attendedAt is null but status attended
+          final attendDate = r.attendedAt ?? r.registrationDate;
           activities.add(ParticipationActivity(
             date: attendDate,
             type: 'Attend',
+            registration: r,
+            event: events[r.eventId],
+          ));
+        } else {
+          // If not attended (pending, registered, cancelled), show selection/registration
+          activities.add(ParticipationActivity(
+            date: r.registrationDate,
+            type: 'Registration',
             registration: r,
             event: events[r.eventId],
           ));
@@ -346,6 +346,159 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
     );
   }
 
+  void _showActivityDetails(ParticipationActivity activity) {
+    if (activity.event == null) return;
+    final event = activity.event!;
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(24),
+              topRight: Radius.circular(24),
+            ),
+          ),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 24),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+
+              // Status Tag
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _getStatusColor(activity.registration.status).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _getStatusIcon(activity.registration.status, activity.type == 'Attend'),
+                      size: 16,
+                      color: _getStatusColor(activity.registration.status),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      activity.type == 'Attend' 
+                        ? 'Attended' 
+                        : (activity.registration.status[0].toUpperCase() + activity.registration.status.substring(1)),
+                      style: TextStyle(
+                        color: _getStatusColor(activity.registration.status),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Title
+              Text(
+                event.name,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                event.clubName,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Info Rows
+              _buildDetailRow(Icons.calendar_today_outlined, 'DATE', DateFormat('EEEE, MMMM d, yyyy').format(activity.date)),
+              const SizedBox(height: 16),
+              
+              // Time - prefer showing event time range, or attendance time if attended
+              if (activity.type == 'Attend')
+                _buildDetailRow(Icons.access_time, 'TIME ATTENDED', DateFormat('HH:mm').format(activity.date))
+              else
+                _buildDetailRow(Icons.access_time, 'TIME', '${event.startTime} - ${event.endTime}'),
+                
+              const SizedBox(height: 16),
+              _buildDetailRow(Icons.location_on_outlined, 'LOCATION', event.location),
+              const SizedBox(height: 16),
+              _buildDetailRow(
+                Icons.payment_outlined, 
+                'PAYMENT', 
+                activity.registration.amountPaid > 0 
+                  ? 'Paid \$${activity.registration.amountPaid.toStringAsFixed(2)}' 
+                  : 'Free'
+              ),
+              const SizedBox(height: 32),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: Colors.grey[600], size: 24),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: Colors.grey[400],
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildActivitiesList() {
     final filtered = _getFilteredActivities();
 
@@ -368,61 +521,143 @@ class _ParticipantAnalyticsScreenState extends State<ParticipantAnalyticsScreen>
       itemBuilder: (context, index) {
         final activity = filtered[index];
         final event = activity.event;
-        
-        IconData icon;
-        Color iconColor;
-        String titlePrefix;
+        final status = activity.registration.status;
+        final isAttended = activity.type == 'Attend' || status == 'attended';
+        final isCancelled = status == 'cancelled';
 
-        if (activity.type == 'Attend') {
-          icon = Icons.check_circle;
-          iconColor = Colors.green;
-        } else {
-          icon = Icons.event;
-          iconColor = Colors.blue;
-        }
+        // Styling constants
+        final statusColor = _getStatusColor(status);
+        final dateColor = isCancelled ? Colors.red : (isAttended ? Colors.green : Colors.blue);
         
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: iconColor.withOpacity(0.1),
-              child: Icon(
-                icon,
-                color: iconColor,
-              ),
-            ),
-            title: Text(
-              event?.name ?? 'Unknown Event',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(DateFormat('MMM dd, yyyy').format(activity.date)),
-                if (activity.type == 'Registration' && activity.registration.amountPaid > 0)
-                  Text(
-                    'Paid: \$${activity.registration.amountPaid.toStringAsFixed(2)}',
-                    style: TextStyle(color: Colors.green[700], fontSize: 12),
-                  ),
+        return GestureDetector(
+          onTap: () => _showActivityDetails(activity),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
               ],
             ),
-            trailing: activity.type == 'Registration' 
-              ? Chip(
-              label: Text(
-                 activity.registration.status[0].toUpperCase() + activity.registration.status.substring(1),
-                 style: const TextStyle(fontSize: 10, color: Colors.white),
-              ),
-              backgroundColor: _getStatusColor(activity.registration.status),
-              padding: EdgeInsets.zero,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ) : null,
+            child: Row(
+              children: [
+                // Date Box (Left)
+                Container(
+                  width: 50,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    color: dateColor.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        DateFormat('MMM').format(activity.date).toUpperCase(),
+                        style: TextStyle(
+                          color: dateColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        DateFormat('d').format(activity.date),
+                        style: TextStyle(
+                          color: dateColor.shade900,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 14),
+
+                // Info (Middle)
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        event?.name ?? 'Unknown Event',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text(
+                            event?.category ?? 'Event',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 11,
+                            ),
+                          ),
+                          if (activity.registration.amountPaid > 0) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[100],
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '\$${activity.registration.amountPaid.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  color: Colors.grey[700],
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(width: 8),
+
+                // Icon (Right)
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _getStatusIcon(status, isAttended),
+                    color: statusColor,
+                    size: 20,
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
     );
+  }
+
+  IconData _getStatusIcon(String status, bool isAttended) {
+    if (isAttended) return Icons.check_circle_outline;
+    switch (status) {
+      case 'cancelled': return Icons.cancel_outlined;
+      case 'registered': return Icons.confirmation_number_outlined;
+      case 'pending': return Icons.hourglass_empty;
+      default: return Icons.info_outline;
+    }
   }
 
   Color _getStatusColor(String status) {

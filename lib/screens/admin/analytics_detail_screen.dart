@@ -774,9 +774,9 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         ? _user?.createdAt 
         : _club?.createdAt;
     
-    final location = widget.role == 'participant' 
-        ? 'Not available' // User model doesn't have location
-        : _club?.location ?? 'Not available';
+    final idLabel = widget.role == 'participant' ? 'User ID' : 'Club ID';
+    final idValue = (widget.role == 'club' && widget.clubId != null) ? widget.clubId! : widget.id;
+    final idIcon = Icons.badge_outlined;
         
     final contactEmail = widget.role == 'participant'
         ? _user?.email
@@ -800,9 +800,9 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
           const SizedBox(height: 16),
           _buildInfoRow(Icons.access_time, 'Member Since', memberSince != null ? DateFormat('MMMM d, yyyy').format(memberSince) : 'Unknown'),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.location_on_outlined, 'Location', location),
+          _buildInfoRow(idIcon, idLabel, idValue),
           const SizedBox(height: 16),
-          _buildInfoRow(Icons.email_outlined, 'Contact Email', contactEmail ?? 'Unknown'),
+          _buildInfoRow(Icons.email_outlined, 'Email', contactEmail ?? 'Unknown'),
           const SizedBox(height: 16),
           _buildInfoRow(Icons.calendar_today_outlined, 'Last Activity', lastActivity != null ? _formatDateTime(lastActivity) : 'No activity'),
         ],
