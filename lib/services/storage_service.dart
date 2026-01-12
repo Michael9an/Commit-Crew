@@ -26,6 +26,12 @@ class StorageService {
     return _uploadToGoogleDrive(userId, imageFile, extension, "profile_picture");
   }
 
+  Future<String?> uploadReviewImage(File imageFile, String uniqueId) async {
+    String extension = imageFile.path.split('.').last;
+    // This will create files named: review_image_[uniqueId].jpg in your Drive
+    return _uploadToGoogleDrive(uniqueId, imageFile, extension, "review_image");
+  }
+
   Future<String?> resolveImageUrl(String? url) async {
     if (url == null || url.isEmpty) return null;
     if (!url.startsWith('http')) return url;

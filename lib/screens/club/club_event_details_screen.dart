@@ -182,6 +182,47 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
           ),
           const SizedBox(height: 8),
           Text(review.comment),
+          
+          // --- NEW: DISPLAY REVIEW PHOTOS ---
+          if (review.photoUrls.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 80,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: review.photoUrls.length,
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: FutureBuilder<String?>(
+                      // Use resolveImageUrl to handle Google Drive links
+                      future: _storageService.resolveImageUrl(review.photoUrls[index]),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return Container(width: 80, height: 80, color: Colors.grey[200]);
+                        }
+                        return GestureDetector(
+                          onTap: () => _showFullImage(context, snapshot.data!),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              snapshot.data!,
+                              width: 80,
+                              height: 80,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_,__,___) => Container(width: 80, height: 80, color: Colors.grey[300], child: const Icon(Icons.broken_image)),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+          // ----------------------------------
+
           const SizedBox(height: 12),
           Row(
             children: [
@@ -200,6 +241,26 @@ class _ClubEventDetailsScreenState extends State<ClubEventDetailsScreen> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  // Add this helper method to the class for viewing images full screen
+  void _showFullImage(BuildContext context, String imageUrl) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            InteractiveViewer(child: Image.network(imageUrl)),
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.white),
+              onPressed: () => Navigator.pop(ctx),
+            ),
+          ],
+        ),
       ),
     );
   }

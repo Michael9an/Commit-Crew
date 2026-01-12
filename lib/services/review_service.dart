@@ -28,12 +28,11 @@ class ReviewService {
     });
   }
 
-  // --- 2. SUBMIT REVIEW (Create) ---
   Future<void> submitReview({
     required String eventId,
     required double rating,
     required String comment,
-    List<File>? photos,
+    List<String> photoUrls = const [], // CHANGED: Now accepts List<String>
   }) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null) throw Exception("User must be logged in.");
@@ -45,35 +44,19 @@ class ReviewService {
     if (docSnapshot.exists) throw Exception('ALREADY_REVIEWED');
 
     try {
-      List<String> downloadUrls = await _uploadPhotos(eventId, photos);
-      
+      // 1. Get User Display Name (Same logic as before)
       String displayName = '';
       try {
         final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
         if (userDoc.exists && userDoc.data() != null) {
           final data = userDoc.data()!;
-          if (data['username'] != null && data['username'].toString().isNotEmpty) {
-            displayName = data['username'];
-          } else if (data['fullName'] != null && data['fullName'].toString().isNotEmpty) {
-            displayName = data['fullName'];
-          } else if (data['name'] != null && data['name'].toString().isNotEmpty) {
-            displayName = data['name'];
-          }
+          displayName = data['username'] ?? data['fullName'] ?? data['name'] ?? '';
         }
-      } catch (e) {
-        print("Error fetching user detail: $e");
-      }
+      } catch (e) { print(e); }
       
-      if (displayName.isEmpty) {
-        displayName = currentUser.displayName ?? '';
-      }
-      if (displayName.isEmpty && currentUser.email != null) {
-        displayName = currentUser.email!.split('@')[0];
-      }
-      if (displayName.isEmpty) {
-        displayName = 'Participant';
-      }
+      if (displayName.isEmpty) displayName = currentUser.displayName ?? currentUser.email!.split('@')[0];
 
+      // 2. Create Review Object
       final newReview = ReviewModel(
         id: reviewId,
         eventId: eventId,
@@ -81,10 +64,11 @@ class ReviewService {
         userName: displayName,
         rating: rating,
         comment: comment,
-        photoUrls: downloadUrls,
+        photoUrls: photoUrls, // Pass the URLs directly
         createdAt: DateTime.now(),
       );
 
+      // 3. Save to Firestore
       await reviewRef.set(newReview.toFirestore());
     } catch (e) {
       throw Exception('Failed to submit review: $e');
