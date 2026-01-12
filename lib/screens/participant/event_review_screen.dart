@@ -1,15 +1,15 @@
-
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../models/event.dart';
-import '../../models/review.dart'; // Ensure this matches path
+import '../../models/review.dart';
 import '../../services/review_service.dart';
+import '../../services/storage_service.dart'; // Import StorageService
 
 class WriteReviewScreen extends StatefulWidget {
   final EventModel event;
-  final ReviewModel? existingReview; // Added for Edit Mode
+  final ReviewModel? existingReview;
 
   const WriteReviewScreen({
     super.key, 
@@ -23,17 +23,18 @@ class WriteReviewScreen extends StatefulWidget {
 
 class _WriteReviewScreenState extends State<WriteReviewScreen> {
   final ReviewService _reviewService = ReviewService();
+  final StorageService _storageService = StorageService(); // Init Storage Service
   final TextEditingController _commentController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
   
   double _rating = 0;
   List<File> _selectedImages = [];
   bool _isSubmitting = false;
+  String _statusMessage = ''; // To show "Uploading 1/3..."
 
   @override
   void initState() {
     super.initState();
-    // Pre-fill if editing
     if (widget.existingReview != null) {
       _rating = widget.existingReview!.rating;
       _commentController.text = widget.existingReview!.comment;
@@ -47,7 +48,7 @@ class _WriteReviewScreenState extends State<WriteReviewScreen> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    if (widget.existingReview != null) return; // Disable photo edit for simplicity
+    if (widget.existingReview != null) return;
     
     try {
       final XFile? pickedFile = await _picker.pickImage(
@@ -65,46 +66,96 @@ class _WriteReviewScreenState extends State<WriteReviewScreen> {
     }
   }
 
+  // --- NEW: Handle Image Uploads via StorageService ---
+  Future<List<String>> _processImageUploads() async {
+    List<String> uploadedUrls = [];
+    
+    for (int i = 0; i < _selectedImages.length; i++) {
+      setState(() {
+        _statusMessage = 'Uploading photo ${i + 1} of ${_selectedImages.length}...';
+      });
+
+      // Generate a unique ID for this specific image to avoid overwrites
+      // Format: eventId_timestamp_index
+      String uniqueImageId = '${widget.event.id}_${DateTime.now().millisecondsSinceEpoch}_$i';
+
+      try {
+        String? url = await _storageService.uploadReviewImage(
+          _selectedImages[i], 
+          uniqueImageId
+        );
+        
+        if (url != null) {
+          uploadedUrls.add(url);
+        }
+      } catch (e) {
+        print("Failed to upload image $i: $e");
+        // Optional: decide if you want to stop or continue if one fails
+      }
+    }
+    return uploadedUrls;
+  }
+
   Future<void> _handleSubmit() async {
     if (_rating == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please select a star rating.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a star rating.')));
       return;
     }
     if (_commentController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please write a review comment.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please write a review comment.')));
       return;
     }
 
-    setState(() => _isSubmitting = true);
+    setState(() {
+      _isSubmitting = true;
+      _statusMessage = 'Preparing...';
+    });
 
     try {
       if (widget.existingReview != null) {
-        // UPDATE Existing
+        // UPDATE Existing Review
         await _reviewService.updateReview(
           reviewId: widget.existingReview!.id!,
           newComment: _commentController.text.trim(),
           newRating: _rating,
         );
-         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Review updated!'), backgroundColor: Colors.green),
-        );
+         if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Review updated!'), backgroundColor: Colors.green),
+          );
+        }
       } else {
-        // CREATE New
+        // CREATE New Review
+        
+        // 1. Upload Images
+        List<String> photoUrls = [];
+        if (_selectedImages.isNotEmpty) {
+          photoUrls = await _processImageUploads();
+        }
+
+        setState(() => _statusMessage = 'Submitting review...');
+
+        // 2. Submit Data
         await _reviewService.submitReview(
           eventId: widget.event.id,
           rating: _rating,
           comment: _commentController.text.trim(),
-          photos: _selectedImages,
+          photoUrls: photoUrls, // Pass the cloud URLs
         );
-         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Review submitted!'), backgroundColor: Colors.green),
-        );
+
+         if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Review submitted!'), backgroundColor: Colors.green),
+          );
+        }
       }
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -118,13 +169,14 @@ class _WriteReviewScreenState extends State<WriteReviewScreen> {
       appBar: AppBar(title: Text(isEditing ? 'Edit Review' : 'Review ${widget.event.name}')),
       body: Stack(
         children: [
+          // Main Content
           SingleChildScrollView(
-            padding: EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(isEditing ? 'Update Rating' : 'How was the event?', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                SizedBox(height: 16),
+                Text(isEditing ? 'Update Rating' : 'How was the event?', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
                 Center(
                   child: RatingBar.builder(
                     initialRating: _rating,
@@ -132,14 +184,14 @@ class _WriteReviewScreenState extends State<WriteReviewScreen> {
                     direction: Axis.horizontal,
                     allowHalfRating: true,
                     itemCount: 5,
-                    itemPadding: EdgeInsets.symmetric(horizontal: 4.0),
-                    itemBuilder: (context, _) => Icon(Icons.star, color: Colors.amber),
+                    itemPadding: const EdgeInsets.symmetric(horizontal: 4.0),
+                    itemBuilder: (context, _) => const Icon(Icons.star, color: Colors.amber),
                     onRatingUpdate: (rating) => setState(() => _rating = rating),
                   ),
                 ),
-                SizedBox(height: 24),
-                Text('Share your experience', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-                SizedBox(height: 8),
+                const SizedBox(height: 24),
+                const Text('Share your experience', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 8),
                 TextField(
                   controller: _commentController,
                   decoration: InputDecoration(
@@ -149,12 +201,12 @@ class _WriteReviewScreenState extends State<WriteReviewScreen> {
                   maxLines: 5,
                   maxLength: 500,
                 ),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
                 
-                // Hide photo picker if editing to simplify
+                // Photo Picker Section
                 if (!isEditing) ...[
-                  Text('Add Photos (Optional)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-                  SizedBox(height: 8),
+                  const Text('Add Photos (Optional)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -174,7 +226,7 @@ class _WriteReviewScreenState extends State<WriteReviewScreen> {
                              top: 0, right: 0,
                              child: GestureDetector(
                                onTap: () => setState(() => _selectedImages.remove(file)),
-                               child: CircleAvatar(radius: 10, backgroundColor: Colors.black54, child: Icon(Icons.close, size: 12, color: Colors.white)),
+                               child: const CircleAvatar(radius: 10, backgroundColor: Colors.black54, child: Icon(Icons.close, size: 12, color: Colors.white)),
                              ),
                           )
                         ],
@@ -183,19 +235,37 @@ class _WriteReviewScreenState extends State<WriteReviewScreen> {
                   ),
                 ],
                 
-                SizedBox(height: 32),
+                const SizedBox(height: 32),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: _isSubmitting ? null : _handleSubmit,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red, padding: EdgeInsets.symmetric(vertical: 14)),
-                    child: Text(isEditing ? 'Update Review' : 'Submit Review', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red, padding: const EdgeInsets.symmetric(vertical: 14)),
+                    child: Text(isEditing ? 'Update Review' : 'Submit Review', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                   ),
                 ),
               ],
             ),
           ),
-          if (_isSubmitting) Container(color: Colors.black54, child: Center(child: CircularProgressIndicator())),
+          
+          // Loading Overlay
+          if (_isSubmitting)
+            Container(
+              color: Colors.black54,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(color: Colors.white),
+                    const SizedBox(height: 16),
+                    Text(
+                      _statusMessage, 
+                      style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );

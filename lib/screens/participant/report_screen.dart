@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import '../../models/event.dart';
 import '../../services/report_service.dart';
+import '../../services/storage_service.dart';
 import 'package:image_picker/image_picker.dart';
 
 class ParticipantReportEventScreen extends StatefulWidget {
@@ -18,6 +19,7 @@ class ParticipantReportEventScreen extends StatefulWidget {
 
 class _ParticipantReportEventScreenState extends State<ParticipantReportEventScreen> {
   final ReportService _reportService = ReportService();
+  final StorageService _storageService = StorageService();
   final ImagePicker _imagePicker = ImagePicker();
 
   String? selectedReason;
@@ -78,6 +80,12 @@ class _ParticipantReportEventScreenState extends State<ParticipantReportEventScr
     setState(() => _isSubmitting = true);
 
     try {
+      String? imageUrl;
+      if (screenshotPath != null) {
+        final tempId = '${widget.event.id}_${DateTime.now().millisecondsSinceEpoch}';
+        imageUrl = await _storageService.uploadReportImage(File(screenshotPath!), tempId);
+      }
+
       await _reportService.submitReport(
         eventId: widget.event.id,
         eventName: widget.event.name,
@@ -85,6 +93,7 @@ class _ParticipantReportEventScreenState extends State<ParticipantReportEventScr
         details: _detailsController.text.isNotEmpty
             ? _detailsController.text
             : null,
+        imageUrl: imageUrl,
       );
 
       if (mounted) {
@@ -257,7 +266,7 @@ class _ParticipantReportEventScreenState extends State<ParticipantReportEventScr
                         ),
                         SizedBox(height: 8),
                         Text(
-                          'Upload Screenshot',
+                          'Upload Image',
                           style: TextStyle(
                             color: Colors.grey[500],
                             fontSize: 14,
@@ -273,7 +282,7 @@ class _ParticipantReportEventScreenState extends State<ParticipantReportEventScr
                         TextButton.icon(
                           onPressed: _pickImage,
                           icon: Icon(Icons.edit),
-                          label: Text('Change Screenshot'),
+                          label: Text('Edit Image'),
                         ),
                       ],
                     ],

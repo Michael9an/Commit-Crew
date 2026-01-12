@@ -29,9 +29,10 @@ class RoleBasedBottomNav extends StatelessWidget {
     return BottomNavigationBar(
       currentIndex: selectedIndex,
       onTap: onItemTapped,
+      type: BottomNavigationBarType.fixed, // Ensure label visibility with > 3 items
       items: const [
         BottomNavigationBarItem(icon: Icon(Icons.explore), label: 'Discover'),
-        BottomNavigationBarItem(icon: Icon(Icons.bookmark), label: 'Registered Events'),
+        BottomNavigationBarItem(icon: Icon(Icons.bookmark), label: 'Bookings'),
         BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
       ],
     );

@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/event.dart';
 import '../../models/report.dart';
 import '../../models/user.dart';
 import '../../models/club.dart';
+import '../../models/review.dart';
+import '../../models/register.dart';
+import '../../services/review_service.dart';
 
 class AnalyticsDetailScreen extends StatefulWidget {
   final String id;
@@ -13,6 +18,7 @@ class AnalyticsDetailScreen extends StatefulWidget {
   final String email;
   final String role; // 'participant' or 'club'
   final String? imageUrl;
+  final String? clubId; // For club users, this is the actual club document ID
 
   const AnalyticsDetailScreen({
     Key? key,
@@ -21,6 +27,7 @@ class AnalyticsDetailScreen extends StatefulWidget {
     required this.email,
     required this.role,
     this.imageUrl,
+    this.clubId,
   }) : super(key: key);
 
   @override
@@ -32,11 +39,40 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
   List<TimelineItem> _timeline = [];
   Map<String, String> _stats = {};
   DateTimeRange? _selectedDateRange; // null means All Time
+  
+  // Financial info
+  double _totalSpent = 0.0;
+  double _totalRevenue = 0.0;
+  List<Map<String, dynamic>> _paymentDetails = [];
+  List<Map<String, dynamic>> _topRevenueEvents = [];
+
+  // New fields for detailed info
+  UserModel? _user;
+  Club? _club;
+  String _selectedActivityFilter = 'All';
+  final DraggableScrollableController _sheetController = DraggableScrollableController();
+  bool _isSheetExpanded = false;
+
+  // New fields for charts
+  List<EventModel> _events = [];
+  List<ReportModel> _reports = [];
 
   @override
   void initState() {
     super.initState();
+    _sheetController.addListener(() {
+      final isExpanded = _sheetController.size > 0.15;
+      if (isExpanded != _isSheetExpanded) {
+        setState(() => _isSheetExpanded = isExpanded);
+      }
+    });
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _sheetController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -58,6 +94,16 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
   }
 
   Future<void> _loadParticipantData() async {
+    // 0. Get User Details
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(widget.id).get();
+      if (userDoc.exists) {
+        _user = UserModel.fromFirestore(userDoc.data()!);
+      }
+    } catch (e) {
+      print('Error fetching user details: $e');
+    }
+
     // 1. Get Events Registered (where attendees contains userId)
     final eventsSnapshot = await FirebaseFirestore.instance
         .collection('events')
@@ -78,6 +124,26 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         .map((doc) => ReportModel.fromFirestore(doc.data(), doc.id))
         .toList();
 
+    // 2b. Get Reviews Made
+    final reviewsSnapshot = await FirebaseFirestore.instance
+        .collection('reviews')
+        .where('userId', isEqualTo: widget.id)
+        .get();
+
+    var reviews = reviewsSnapshot.docs
+        .map((doc) => ReviewModel.fromFirestore(doc.data(), doc.id))
+        .toList();
+
+    // 2c. Get Registrations/Attendances
+    final registersSnapshot = await FirebaseFirestore.instance
+        .collection('registers')
+        .where('userId', isEqualTo: widget.id)
+        .get();
+    
+    var registrations = registersSnapshot.docs
+        .map((doc) => Register.fromFirestore(doc.data(), documentId: doc.id))
+        .toList();
+
     // Filter by date range if selected
     if (_selectedDateRange != null) {
       events = events.where((e) {
@@ -96,20 +162,66 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         return (reportDate.isAtSameMomentAs(start) || reportDate.isAfter(start)) && 
                (reportDate.isAtSameMomentAs(end) || reportDate.isBefore(end));
       }).toList();
+
+      reviews = reviews.where((v) {
+        if (v.createdAt == null) return false;
+        final reviewDate = DateTime(v.createdAt!.year, v.createdAt!.month, v.createdAt!.day);
+        final start = DateTime(_selectedDateRange!.start.year, _selectedDateRange!.start.month, _selectedDateRange!.start.day);
+        final end = DateTime(_selectedDateRange!.end.year, _selectedDateRange!.end.month, _selectedDateRange!.end.day);
+        return (reviewDate.isAtSameMomentAs(start) || reviewDate.isAfter(start)) && 
+               (reviewDate.isAtSameMomentAs(end) || reviewDate.isBefore(end));
+      }).toList();
+
+      registrations = registrations.where((r) {
+        final regDate = DateTime(r.registrationDate.year, r.registrationDate.month, r.registrationDate.day);
+        final start = DateTime(_selectedDateRange!.start.year, _selectedDateRange!.start.month, _selectedDateRange!.start.day);
+        final end = DateTime(_selectedDateRange!.end.year, _selectedDateRange!.end.month, _selectedDateRange!.end.day);
+        
+        bool inRange = (regDate.isAtSameMomentAs(start) || regDate.isAfter(start)) && 
+               (regDate.isAtSameMomentAs(end) || regDate.isBefore(end));
+        
+        // If it's an attendance, we should also check attendance date
+        if (r.status == 'attended' && r.attendedAt != null) {
+          final attendDate = DateTime(r.attendedAt!.year, r.attendedAt!.month, r.attendedAt!.day);
+          bool attendInRange = (attendDate.isAtSameMomentAs(start) || attendDate.isAfter(start)) && 
+                               (attendDate.isAtSameMomentAs(end) || attendDate.isBefore(end));
+          return inRange || attendInRange;
+        }
+        return inRange;
+      }).toList();
     }
+
+    _events = events;
+    _reports = reports;
 
     // 3. Build Timeline
     List<TimelineItem> items = [];
     
-    // Add registrations (using event createdAt as proxy for reg time if not available, 
-    // but ideally we'd have a separate registrations collection. 
-    // For now, we'll use event date or createdAt)
+    // Create a map for event names
+    final Map<String, String> eventNames = {};
     for (var event in events) {
+      eventNames[event.id] = event.name;
+    }
+    
+    // Add registrations and attendances from registrations list
+    for (var reg in registrations) {
+      final eventName = eventNames[reg.eventId] ?? 'Unknown Event';
+      
+      // Registration activity
       items.add(TimelineItem(
-        date: event.createdAt ?? DateTime.now(),
-        title: 'Registered for ${event.name}',
+        date: reg.registrationDate,
+        title: 'Registered for $eventName',
         type: 'registration',
       ));
+
+      // Attendance activity
+      if (reg.status == 'attended') {
+        items.add(TimelineItem(
+          date: reg.attendedAt ?? reg.registrationDate, // Fallback
+          title: 'Attended $eventName',
+          type: 'attend',
+        ));
+      }
     }
 
     for (var report in reports) {
@@ -120,22 +232,84 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
       ));
     }
 
+    for (var review in reviews) {
+      if (review.createdAt != null) {
+        items.add(TimelineItem(
+          date: review.createdAt!,
+          title: 'Reviewed an event',
+          type: 'review',
+          details: review.comment,
+          id: review.id,
+        ));
+      }
+    }
+
     // Sort by date descending
     items.sort((a, b) => b.date.compareTo(a.date));
 
     _timeline = items;
+    
+    // Calculate total spent and build payment details
+    double spent = 0.0;
+    List<Map<String, dynamic>> payments = [];
+    
+    final Map<String, String> pEventNames = {};
+    for (var e in events) {
+      pEventNames[e.id] = e.name;
+    }
+
+    // Also try to find event names from registrations if we have the event data somewhere
+    // For now, rely on events loaded. 
+
+    for (var reg in registrations) {
+       if (reg.amountPaid > 0) {
+         spent += reg.amountPaid;
+         payments.add({
+           'eventName': pEventNames[reg.eventId] ?? 'Event',
+           'amount': reg.amountPaid,
+           'date': reg.registrationDate,
+         });
+       }
+    }
+    payments.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
+    
+    _totalSpent = spent;
+    _paymentDetails = payments;
+
     _stats = {
-      'EVENTS REGISTERED': events.length.toString(),
-      'REPORTS MADE': reports.length.toString(),
+      'Event ': events.length.toString(),
+      'Report': reports.length.toString(),
+      'Review': reviews.length.toString(),
     };
   }
 
   Future<void> _loadClubData() async {
-    // 1. Get Events Created (where clubId == id)
+    // Determine the actual club ID to use
+    final actualClubId = widget.clubId ?? widget.id;
+    print('DEBUG: Loading club data for clubId: $actualClubId (widget.id: ${widget.id}, widget.clubId: ${widget.clubId})');
+    
+    // 0. Get Club Details
+    try {
+      final clubDoc = await FirebaseFirestore.instance.collection('clubs').doc(actualClubId).get();
+      if (clubDoc.exists) {
+        final data = clubDoc.data()!;
+        data['id'] = clubDoc.id;
+        _club = Club.fromFirestore(data);
+        print('DEBUG: Club loaded: ${_club?.name}');
+      } else {
+        print('DEBUG: Club document not found for id: $actualClubId');
+      }
+    } catch (e) {
+      print('Error fetching club details: $e');
+    }
+
+    // 1. Get Events Created (where clubId == actualClubId)
     final eventsSnapshot = await FirebaseFirestore.instance
         .collection('events')
-        .where('clubId', isEqualTo: widget.id)
+        .where('clubId', isEqualTo: actualClubId)
         .get();
+    
+    print('DEBUG: Found ${eventsSnapshot.docs.length} events for club $actualClubId');
 
     var events = eventsSnapshot.docs
         .map((doc) => EventModel.fromFirestore(doc.data(), doc.id))
@@ -155,12 +329,9 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
 
     // 2. Get Reports Received (reports on these events)
     List<ReportModel> reports = [];
+    List<ReviewModel> reviews = [];
+
     if (events.isNotEmpty) {
-      // Firestore 'in' query is limited to 10. If more, we need multiple queries or client-side filter.
-      // For scalability, let's fetch all reports and filter (not ideal for prod but ok for now)
-      // OR fetch reports where eventId is in the list.
-      
-      // Let's try fetching reports for each event (parallel)
       final eventIds = events.map((e) => e.id).toList();
       
       // Chunking for 'whereIn' limit of 10
@@ -168,17 +339,39 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         final end = (i + 10 < eventIds.length) ? i + 10 : eventIds.length;
         final chunk = eventIds.sublist(i, end);
         
-        final chunkSnapshot = await FirebaseFirestore.instance
-            .collection('reports')
-            .where('eventId', whereIn: chunk)
-            .get();
-            
-        reports.addAll(chunkSnapshot.docs
-            .map((doc) => ReportModel.fromFirestore(doc.data(), doc.id)));
+        try {
+          final reportChunk = await FirebaseFirestore.instance
+              .collection('reports')
+              .where('eventId', whereIn: chunk)
+              .get();
+          // Safe mapping for reports
+          for (var doc in reportChunk.docs) {
+            try {
+              reports.add(ReportModel.fromFirestore(doc.data(), doc.id));
+            } catch (e) {
+              print('Error parsing report: $e');
+            }
+          }
+
+          final reviewChunk = await FirebaseFirestore.instance
+              .collection('reviews')
+              .where('eventId', whereIn: chunk)
+              .get();
+          // Safe mapping for reviews
+          for (var doc in reviewChunk.docs) {
+             try {
+                reviews.add(ReviewModel.fromFirestore(doc.data(), doc.id));
+             } catch (e) {
+                print('Error parsing review: $e');
+             }
+          }
+        } catch (e) {
+          print('Error fetching chunks for club data: $e');
+        }
       }
     }
 
-    // Filter reports by date range if selected
+    // Filter by date range
     if (_selectedDateRange != null) {
       reports = reports.where((r) {
         final reportDate = DateTime(r.createdAt.year, r.createdAt.month, r.createdAt.day);
@@ -187,34 +380,75 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         return (reportDate.isAtSameMomentAs(start) || reportDate.isAfter(start)) && 
                (reportDate.isAtSameMomentAs(end) || reportDate.isBefore(end));
       }).toList();
+
+      reviews = reviews.where((v) {
+        if (v.createdAt == null) return false;
+        final reviewDate = DateTime(v.createdAt!.year, v.createdAt!.month, v.createdAt!.day);
+        final start = DateTime(_selectedDateRange!.start.year, _selectedDateRange!.start.month, _selectedDateRange!.start.day);
+        final end = DateTime(_selectedDateRange!.end.year, _selectedDateRange!.end.month, _selectedDateRange!.end.day);
+        return (reviewDate.isAtSameMomentAs(start) || reviewDate.isAfter(start)) && 
+               (reviewDate.isAtSameMomentAs(end) || reviewDate.isBefore(end));
+      }).toList();
     }
+
+    _events = events;
+    _reports = reports;
 
     // 3. Build Timeline
     List<TimelineItem> items = [];
+    int editCount = 0;
+    double estimatedRevenue = 0;
+    List<Map<String, dynamic>> eventRevenues = [];
 
     for (var event in events) {
+      // Calculate revenue 
+      double eventRevenue = (event.price * event.attendees.length);
+      estimatedRevenue += eventRevenue;
+
+      if (eventRevenue > 0) {
+        eventRevenues.add({
+          'eventName': event.name,
+          'revenue': eventRevenue,
+          'attendees': event.attendees.length,
+          'date': event.createdAt,
+        });
+      }
+
+      // Add create event activity
       items.add(TimelineItem(
         date: event.createdAt ?? DateTime.now(),
-        title: 'Created event ${event.name}',
-        type: 'creation',
+        title: 'Created event: ${event.name}',
+        type: 'create_event',
+        details: event.location,
       ));
-    }
-
-    for (var report in reports) {
-      items.add(TimelineItem(
-        date: report.createdAt,
-        title: 'Report received for ${report.eventName}',
-        type: 'report_received',
-      ));
+      
+      // Add edit event activity if updatedAt exists and is different from createdAt
+      if (event.updatedAt != null && event.createdAt != null) {
+        final timeDiff = event.updatedAt!.difference(event.createdAt!).inMinutes.abs();
+        if (timeDiff > 1) { // Only count as edit if more than 1 minute difference
+          items.add(TimelineItem(
+            date: event.updatedAt!,
+            title: 'Edited event: ${event.name}',
+            type: 'edit_event',
+            details: event.location,
+          ));
+          editCount++;
+        }
+      }
     }
 
     items.sort((a, b) => b.date.compareTo(a.date));
 
+    // Sort by revenue
+    eventRevenues.sort((a, b) => (b['revenue'] as double).compareTo(a['revenue'] as double));
+    _topRevenueEvents = eventRevenues;
+
     _timeline = items;
+    _totalRevenue = estimatedRevenue;
     _stats = {
-      'EVENTS': events.length.toString(),
-      'REPORTS': reports.length.toString(),
-      'MEMBERS': '0', // Need to fetch club members count if available
+      'Events': events.length.toString(),
+      'Edits': editCount.toString(),
+      // Revenue is now a separate card
     };
   }
 
@@ -352,7 +586,7 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.role == 'participant' ? 'Participant' : 'Club'),
+        title: Text(widget.role == 'participant' ? 'User Management' : 'Club'),
         centerTitle: false,
         actions: [
           Padding(
@@ -382,95 +616,54 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              child: Column(
-                children: [
-                  const SizedBox(height: 20),
-                  // Profile Header
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                    child: Row(
-                      children: [
-                        Stack(
-                          alignment: Alignment.bottomCenter,
+          : Stack(
+              children: [
+                SingleChildScrollView(
+                  padding: const EdgeInsets.only(bottom: 100),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 20),
+                      // Profile Header
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                        child: Row(
                           children: [
-                            CircleAvatar(
-                              radius: 40,
-                              backgroundImage: widget.imageUrl != null && widget.imageUrl!.isNotEmpty
-                                  ? NetworkImage(widget.imageUrl!)
-                                  : null,
-                              child: widget.imageUrl == null || widget.imageUrl!.isEmpty
-                                  ? const Icon(Icons.person, size: 40)
-                                  : null,
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.green,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Text(
-                                'ACTIVE',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
+                            Stack(
+                              alignment: Alignment.bottomCenter,
+                              children: [
+                                CircleAvatar(
+                                  radius: 40,
+                                  backgroundImage: widget.imageUrl != null && widget.imageUrl!.isNotEmpty
+                                      ? NetworkImage(widget.imageUrl!)
+                                      : null,
+                                  child: widget.imageUrl == null || widget.imageUrl!.isEmpty
+                                      ? const Icon(Icons.person, size: 40)
+                                      : null,
                                 ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(width: 20),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                widget.name,
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                widget.email,
-                                style: TextStyle(
-                                  color: Colors.grey[600],
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Stats Cards
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: _stats.entries.map((entry) {
-                        return Expanded(
-                          child: Card(
-                            elevation: 2,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              child: Column(
-                                children: [
-                                  Icon(
-                                    _getStatIcon(entry.key),
-                                    color: _getStatColor(entry.key),
-                                    size: 24,
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green,
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
-                                  const SizedBox(height: 8),
+                                  child: const Text(
+                                    'ACTIVE',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(width: 20),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
                                   Text(
-                                    entry.value,
+                                    widget.name,
                                     style: const TextStyle(
                                       fontSize: 20,
                                       fontWeight: FontWeight.bold,
@@ -478,155 +671,139 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    entry.key,
+                                    widget.email,
                                     style: TextStyle(
-                                      fontSize: 12,
                                       color: Colors.grey[600],
-                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Recent Activity
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black12,
-                          blurRadius: 10,
-                          offset: Offset(0, -5),
+                          ],
                         ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'RECENT ACTIVITY',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _timeline.length,
-                          itemBuilder: (context, index) {
-                            final item = _timeline[index];
-                            return IntrinsicHeight(
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Column(
-                                    children: [
-                                      Container(
-                                        width: 12,
-                                        height: 12,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: Colors.blue,
-                                            width: 2,
-                                          ),
-                                          color: Colors.white,
-                                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Stats Cards
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: _stats.entries.map((entry) {
+                            return Expanded(
+                              child: GestureDetector(
+                                onTap: () => _showMetricDetail(context, entry.key),
+                                child: Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    color: Colors.white,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.08),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 2),
                                       ),
-                                      if (index != _timeline.length - 1)
-                                        Expanded(
-                                          child: Container(
-                                            width: 2,
-                                            color: Colors.grey[200],
-                                          ),
-                                        ),
                                     ],
                                   ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(bottom: 24),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            DateFormat('MMM d, yyyy').format(item.date),
-                                            style: TextStyle(
-                                              color: Colors.grey[500],
-                                              fontSize: 12,
-                                            ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                                    child: Column(
+                                      children: [
+                                        Icon(
+                                          _getStatIcon(entry.key),
+                                          color: _getStatColor(entry.key),
+                                          size: 24,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          entry.value,
+                                          style: const TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.bold,
                                           ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            item.title,
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w500,
-                                            ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          entry.key,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[600],
+                                            fontWeight: FontWeight.bold,
                                           ),
-                                          const SizedBox(height: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 4,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.grey[100],
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              item.type,
-                                              style: TextStyle(
-                                                color: Colors.grey[600],
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                ],
+                                ),
                               ),
                             );
-                          },
+                          }).toList(),
                         ),
-                      ],
-                    ),
+                      ),
+                      
+                      const SizedBox(height: 16),
+
+                      // Financial Card
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                        child: widget.role == 'participant'
+                            ? _buildMoneySpentCard()
+                            : _buildRevenueCard(),
+                      ),
+
+                      const SizedBox(height: 24),
+                      
+                      // More Information
+                      _buildMoreInfo(),
+
+                      // Danger Zone for Club Admins
+                      if (widget.role == 'club')
+                        _buildDangerZone(),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                
+                // Recent Activity Sheet
+                _buildRecentActivitySheet(),
+              ],
             ),
     );
   }
 
   IconData _getStatIcon(String key) {
     switch (key) {
+      // Participant stats
+      case 'Event ': return Icons.event_available;
+      case 'Report': return Icons.flag_outlined;
+      case 'Review': return Icons.rate_review_outlined;
+      // Club stats
+      case 'Events': return Icons.calendar_today;
+      case 'Edits': return Icons.edit_outlined;
+      case 'Members': return Icons.group_outlined;
+      case 'Revenue': return Icons.attach_money;
+      // Legacy keys
       case 'EVENTS REGISTERED': return Icons.event_available;
       case 'REPORTS MADE': return Icons.report_problem;
       case 'EVENTS': return Icons.calendar_today;
       case 'REPORTS': return Icons.flag_outlined;
       case 'MEMBERS': return Icons.group_outlined;
-      default: return Icons.circle;
+      default: return Icons.analytics_outlined;
     }
   }
 
   Color _getStatColor(String key) {
     switch (key) {
+      // Participant stats
+      case 'Event ': return Colors.blue;
+      case 'Report': return Colors.orange;
+      case 'Review': return Colors.amber;
+      // Club stats  
+      case 'Events': return Colors.green;
+      case 'Edits': return Colors.purple;
+      case 'Members': return Colors.blue;
+      case 'Revenue': return Colors.teal;
+      // Legacy keys
       case 'EVENTS REGISTERED': return Colors.blue;
       case 'REPORTS MADE': return Colors.orange;
       case 'EVENTS': return Colors.purple;
@@ -635,16 +812,1247 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
       default: return Colors.grey;
     }
   }
+
+  Widget _buildMoreInfo() {
+    final memberSince = widget.role == 'participant' 
+        ? _user?.createdAt 
+        : _club?.createdAt;
+    
+    final idLabel = widget.role == 'participant' ? 'User ID' : 'Club ID';
+    final idValue = (widget.role == 'club' && widget.clubId != null) ? widget.clubId! : widget.id;
+    final idIcon = Icons.badge_outlined;
+        
+    final contactEmail = widget.role == 'participant'
+        ? _user?.email
+        : _club?.contactEmail ?? widget.email;
+
+    final lastActivity = _timeline.isNotEmpty ? _timeline.first.date : null;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'More Information',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildInfoRow(Icons.access_time, 'Member Since', memberSince != null ? DateFormat('MMMM d, yyyy').format(memberSince) : 'Unknown'),
+          const SizedBox(height: 16),
+          _buildInfoRow(idIcon, idLabel, idValue),
+          const SizedBox(height: 16),
+          _buildInfoRow(Icons.email_outlined, 'Email', contactEmail ?? 'Unknown'),
+          const SizedBox(height: 16),
+          _buildInfoRow(Icons.calendar_today_outlined, 'Last Activity', lastActivity != null ? _formatDateTime(lastActivity) : 'No activity'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: Colors.grey[600], size: 20),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: Colors.grey[500],
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecentActivitySheet() {
+    return DraggableScrollableSheet(
+      controller: _sheetController,
+      initialChildSize: 0.1,
+      minChildSize: 0.1,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black12,
+                blurRadius: 10,
+                offset: Offset(0, -5),
+              ),
+            ],
+          ),
+          child: SingleChildScrollView(
+            controller: scrollController,
+            child: Column(
+              children: [
+                // Handle bar
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                // Header
+                GestureDetector(
+                  onTap: () {
+                    if (_sheetController.size > 0.15) {
+                      _sheetController.animateTo(
+                        0.1,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                      );
+                    } else {
+                      _sheetController.animateTo(
+                        0.95,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                      );
+                    }
+                  },
+                  child: Container(
+                    color: Colors.transparent, // Ensure hit test works
+                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'RECENT ACTIVITIES',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (_isSheetExpanded)
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.filter_list),
+                            onSelected: (value) {
+                              setState(() {
+                                _selectedActivityFilter = value;
+                              });
+                            },
+                            itemBuilder: (context) {
+                              // Different filters for participant vs club
+                              final filters = widget.role == 'participant'
+                                  ? ['All', 'Register', 'Attend', 'Report', 'Review']
+                                  : ['All', 'Create Event', 'Edit Event'];
+                              return filters.map((filter) => PopupMenuItem(
+                                value: filter,
+                                child: Text(filter),
+                              )).toList();
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                _buildActivityList(), // Always build, don't hide based on expansion
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildActivityList() {
+    final filteredTimeline = _selectedActivityFilter == 'All'
+        ? _timeline
+        : _timeline.where((item) {
+            // Participant filters
+            if (_selectedActivityFilter == 'Register') return item.type == 'registration';
+            if (_selectedActivityFilter == 'Attend') return item.type == 'attend';
+            if (_selectedActivityFilter == 'Report') return item.type.contains('report');
+            if (_selectedActivityFilter == 'Review') return item.type.contains('review');
+            // Club filters
+            if (_selectedActivityFilter == 'Create Event') return item.type == 'create_event';
+            if (_selectedActivityFilter == 'Edit Event') return item.type == 'edit_event';
+            return true;
+          }).toList();
+
+    if (filteredTimeline.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(32.0),
+        child: Text('No activities found'),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      itemCount: filteredTimeline.length,
+      itemBuilder: (context, index) {
+        final item = filteredTimeline[index];
+        final typeColor = _getTypeColor(item.type);
+        
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Column(
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: typeColor,
+                        width: 2,
+                      ),
+                      color: Colors.white,
+                    ),
+                  ),
+                  if (index != filteredTimeline.length - 1)
+                    Expanded(
+                      child: Container(
+                        width: 2,
+                        color: Colors.grey[200],
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        DateFormat('MMM d, yyyy').format(item.date),
+                        style: TextStyle(
+                          color: Colors.grey[500],
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        item.title,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      if (item.details != null && !item.type.contains('review'))
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.details!,
+                                style: TextStyle(
+                                  color: Colors.grey[800],
+                                  fontSize: 13,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                              if (item.type.contains('review') && item.id != null)
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton.icon(
+                                    onPressed: () => _deleteReview(item.id!),
+                                    icon: const Icon(Icons.delete_outline, size: 14, color: Colors.red),
+                                    label: const Text('Delete', style: TextStyle(color: Colors.red, fontSize: 11)),
+                                    style: TextButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      minimumSize: const Size(50, 30),
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: typeColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          item.type.toUpperCase(),
+                          style: TextStyle(
+                            color: typeColor,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _deleteReview(String reviewId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Review'),
+        content: const Text('Are you sure you want to delete this review? This action cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await ReviewService().deleteReview(reviewId);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Review deleted')));
+          _loadData(); // Refresh data
+        }
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Color _getTypeColor(String type) {
+    if (type.contains('review')) return Colors.amber[700]!;
+    if (type.contains('report')) return Colors.red;
+    if (type == 'registration') return Colors.blue;
+    if (type == 'attend') return Colors.green;
+    if (type == 'create_event') return Colors.green;
+    if (type == 'edit_event') return Colors.purple;
+    return Colors.grey;
+  }
+
+
+  String _formatDateTime(DateTime dt) {
+    return '${DateFormat('MMM d, yyyy').format(dt)} at ${DateFormat('h:mm a').format(dt)}';
+  }
+
+  void _showMetricDetail(BuildContext context, String key) {
+    if (key == 'MEMBERS') return; // No chart for members
+    
+    // Disable popups for specific metrics based on role
+    if (widget.role == 'participant' && ['Event ', 'Report', 'Review'].contains(key)) return;
+    if (widget.role == 'club' && ['Events', 'Edits'].contains(key)) return;
+
+    List<dynamic> data = [];
+    Color color = _getStatColor(key);
+    
+    if (key == 'EVENTS REGISTERED' || key == 'EVENTS') {
+      data = _events;
+    } else if (key == 'REPORTS MADE' || key == 'REPORTS') {
+      data = _reports;
+    } else if (key == 'Revenue') {
+      data = _events; // Use events for revenue analysis
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.5,
+        minChildSize: 0.3,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) {
+          return SingleChildScrollView(
+            controller: scrollController,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '$key Analysis',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 20),
+                  if (key == 'Revenue')
+                    _buildRevenueAnalysis(color)
+                  else
+                    _buildMetricChart(key, data, color),
+                ],
+              ),
+            ),
+          );
+        }
+      ),
+    );
+  }
+
+  Widget _buildRevenueAnalysis(Color color) {
+    // Calculate revenue timeline
+    Map<DateTime, double> revenueByDate = {};
+    Map<String, double> participantSpending = {}; // participantId -> total spent
+    Map<String, double> clubRevenue = {}; // clubId -> total revenue
+    
+    for (var event in _events) {
+      final eventDate = event.createdAt ?? DateTime.now();
+      final day = DateTime(eventDate.year, eventDate.month, eventDate.day);
+      final eventRevenue = event.price * event.attendees.length;
+      
+      // Add to date timeline
+      revenueByDate[day] = (revenueByDate[day] ?? 0) + eventRevenue;
+      
+      // Track by club
+      if (event.clubId != null) {
+        clubRevenue[event.clubId!] = (clubRevenue[event.clubId!] ?? 0) + eventRevenue;
+      }
+    }
+    
+    // For participant, calculate their spending from registered events
+    if (widget.role == 'participant') {
+      double totalSpent = 0;
+      for (var event in _events) {
+        totalSpent += event.price;
+      }
+      participantSpending[widget.id] = totalSpent;
+    }
+
+    final sortedDates = revenueByDate.keys.toList()..sort();
+    
+    // Get top participants by spending (for club view)
+    List<MapEntry<String, double>> topParticipants = [];
+    if (widget.role == 'club') {
+      // Build participant spending from events
+      for (var event in _events) {
+        for (var participantId in event.attendees) {
+          participantSpending[participantId] = (participantSpending[participantId] ?? 0) + event.price;
+        }
+      }
+      topParticipants = participantSpending.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      topParticipants = topParticipants.take(5).toList();
+    }
+
+    // Get top clubs by revenue (for participant view)
+    List<MapEntry<String, double>> topClubs = clubRevenue.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    topClubs = topClubs.take(5).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Revenue Timeline Chart
+        if (sortedDates.isNotEmpty && widget.role != 'club') ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Revenue Timeline',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildRevenueTimelineChart(revenueByDate, sortedDates, color),
+          const SizedBox(height: 32),
+        ],
+
+        // Top Participants by Money Spent (for club view)
+        if (widget.role == 'club' && topParticipants.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Top Participants by Money Spent',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildTopParticipantsList(topParticipants),
+          const SizedBox(height: 32),
+        ],
+
+        // Top Clubs by Revenue (for participant view)
+        if (widget.role == 'participant' && topClubs.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Top Clubs by Revenue',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          _buildTopClubsList(topClubs),
+          const SizedBox(height: 32),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRevenueTimelineChart(
+    Map<DateTime, double> revenueByDate,
+    List<DateTime> sortedDates,
+    Color color,
+  ) {
+    final spots = sortedDates.asMap().entries.map((e) {
+      return FlSpot(e.key.toDouble(), revenueByDate[e.value]!);
+    }).toList();
+
+    return Container(
+      height: 250,
+      padding: const EdgeInsets.only(right: 24),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Container(
+          width: sortedDates.length * 50.0 < MediaQuery.of(context).size.width
+              ? MediaQuery.of(context).size.width - 48
+              : sortedDates.length * 50.0,
+          padding: const EdgeInsets.only(left: 24, top: 24, bottom: 12),
+          child: LineChart(
+            LineChartData(
+              gridData: const FlGridData(show: false),
+              titlesData: FlTitlesData(
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    getTitlesWidget: (value, meta) {
+                      final index = value.toInt();
+                      if (index >= 0 && index < sortedDates.length) {
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(
+                            DateFormat('MM/dd').format(sortedDates[index]),
+                            style: const TextStyle(fontSize: 10),
+                          ),
+                        );
+                      }
+                      return const Text('');
+                    },
+                    interval: 1,
+                  ),
+                ),
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    interval: null,
+                    reservedSize: 50,
+                    getTitlesWidget: (value, meta) {
+                      return Text(
+                        'RM${value.toStringAsFixed(0)}',
+                        style: const TextStyle(fontSize: 9),
+                      );
+                    },
+                  ),
+                ),
+                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              ),
+              borderData: FlBorderData(show: false),
+              lineBarsData: [
+                LineChartBarData(
+                  spots: spots,
+                  isCurved: true,
+                  color: color,
+                  barWidth: 3,
+                  dotData: const FlDotData(show: true),
+                  belowBarData: BarAreaData(
+                    show: true,
+                    color: color.withOpacity(0.1),
+                  ),
+                ),
+              ],
+              minY: 0,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopParticipantsList(List<MapEntry<String, double>> topParticipants) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Column(
+        children: List.generate(topParticipants.length, (index) {
+          final entry = topParticipants[index];
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.grey[300],
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${index + 1}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FutureBuilder<DocumentSnapshot>(
+                        future: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(entry.key)
+                            .get(),
+                        builder: (context, snapshot) {
+                          String name = 'User #${index + 1}';
+                          if (snapshot.hasData && snapshot.data!.exists) {
+                            name = snapshot.data!['name'] ?? name;
+                          }
+                          return Text(
+                            name,
+                            style: const TextStyle(fontSize: 14),
+                          );
+                        },
+                      ),
+                    ),
+                    Text(
+                      'RM${entry.value.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (index < topParticipants.length - 1)
+                Divider(height: 1, color: Colors.grey[300]),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildTopClubsList(List<MapEntry<String, double>> topClubs) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Column(
+        children: List.generate(topClubs.length, (index) {
+          final entry = topClubs[index];
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.grey[300],
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${index + 1}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FutureBuilder<DocumentSnapshot>(
+                        future: FirebaseFirestore.instance
+                            .collection('clubs')
+                            .doc(entry.key)
+                            .get(),
+                        builder: (context, snapshot) {
+                          String name = 'Club #${index + 1}';
+                          if (snapshot.hasData && snapshot.data!.exists) {
+                            name = snapshot.data!['name'] ?? name;
+                          }
+                          return Text(
+                            name,
+                            style: const TextStyle(fontSize: 14),
+                          );
+                        },
+                      ),
+                    ),
+                    Text(
+                      'RM${entry.value.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (index < topClubs.length - 1)
+                Divider(height: 1, color: Colors.grey[300]),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildMetricChart(String title, List<dynamic> data, Color color) {
+    // Aggregate data by date
+    Map<DateTime, int> counts = {};
+    
+    for (var item in data) {
+      DateTime? date;
+      if (item is EventModel) date = item.createdAt;
+      if (item is ReportModel) date = item.createdAt;
+      
+      if (date != null) {
+        final day = DateTime(date.year, date.month, date.day);
+        counts[day] = (counts[day] ?? 0) + 1;
+      }
+    }
+
+    if (counts.isEmpty) return const SizedBox.shrink();
+
+    final sortedDates = counts.keys.toList()..sort();
+    final spots = sortedDates.asMap().entries.map((e) {
+      return FlSpot(e.key.toDouble(), counts[e.value]!.toDouble());
+    }).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        Container(
+          height: 200,
+          padding: const EdgeInsets.only(right: 24),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Container(
+              width: sortedDates.length * 50.0 < MediaQuery.of(context).size.width 
+                  ? MediaQuery.of(context).size.width - 48 
+                  : sortedDates.length * 50.0,
+              padding: const EdgeInsets.only(left: 24, top: 24, bottom: 12),
+              child: LineChart(
+                LineChartData(
+                  gridData: const FlGridData(show: false),
+                  titlesData: FlTitlesData(
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (value, meta) {
+                          final index = value.toInt();
+                          if (index >= 0 && index < sortedDates.length) {
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 8.0),
+                              child: Text(
+                                DateFormat('MM/dd').format(sortedDates[index]),
+                                style: const TextStyle(fontSize: 10),
+                              ),
+                            );
+                          }
+                          return const Text('');
+                        },
+                        interval: 1,
+                      ),
+                    ),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        interval: 1,
+                        reservedSize: 30,
+                        getTitlesWidget: (value, meta) {
+                          if (value % 1 == 0) {
+                            return Text(value.toInt().toString(), style: const TextStyle(fontSize: 10));
+                          }
+                          return const SizedBox.shrink();
+                        },
+                      ),
+                    ),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: spots,
+                      isCurved: true,
+                      color: color,
+                      barWidth: 3,
+                      dotData: const FlDotData(show: true),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: color.withOpacity(0.1),
+                      ),
+                    ),
+                  ],
+                  minY: 0,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _buildDangerZone() {
+    if (_club == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'DANGER ZONE',
+            style: TextStyle(
+              color: Colors.red,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.red.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.red.withOpacity(0.2)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _club!.status == 'restricted' ? 'Unrestrict Club' : 'Restrict Club',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _club!.status == 'restricted' 
+                          ? 'Allow club to create events again'
+                          : 'Prevent club from creating new events',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: _toggleClubRestriction,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Text(_club!.status == 'restricted' ? 'Enable' : 'Restrict'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _toggleClubRestriction() async {
+    if (_club == null) return;
+
+    final isRestricted = _club!.status == 'restricted';
+    final action = isRestricted ? 'unrestrict' : 'restrict';
+    final passwordController = TextEditingController();
+    
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${isRestricted ? 'Unrestrict' : 'Restrict'} Club?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to $action ${_club!.name}? \n'
+              '${isRestricted ? 'They will be able to create events again.' : 'They will no longer be able to create events.'}'
+            ),
+            const SizedBox(height: 16),
+            const Text('Enter admin password to confirm:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'Password',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: Text(isRestricted ? 'Unrestrict' : 'Restrict'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      if (passwordController.text.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+           const SnackBar(content: Text('Password is required')),
+        );
+        return;
+      }
+
+      setState(() => _isLoading = true);
+
+      try {
+        // Verify admin password
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null && user.email != null) {
+          AuthCredential credential = EmailAuthProvider.credential(
+            email: user.email!, 
+            password: passwordController.text
+          );
+          
+          await user.reauthenticateWithCredential(credential);
+        } else {
+           throw Exception('Admin not logged in');
+        }
+
+        final newStatus = isRestricted ? 'approved' : 'restricted'; 
+        
+        await FirebaseFirestore.instance.collection('clubs').doc(_club!.id).update({
+          'status': newStatus,
+        });
+
+        setState(() {
+          _club = _club!.copyWith(status: newStatus); 
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text('Club has been $action\ed successfully')),
+        );
+      } catch (e) {
+        String errorMessage = 'Error: $e';
+        if (e.toString().contains('wrong-password')) {
+           errorMessage = 'Incorrect password';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+        );
+      } finally {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Widget _buildMoneySpentCard() {
+    return GestureDetector(
+      onTap: () {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+          builder: (context) => DraggableScrollableSheet(
+            initialChildSize: 0.5,
+            minChildSize: 0.3,
+            maxChildSize: 0.9,
+            expand: false,
+            builder: (context, scrollController) {
+              return Column(
+                children: [
+                   Container(
+                     margin: const EdgeInsets.only(top: 8),
+                     height: 4, width: 40,
+                     decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                   ),
+                   const Padding(
+                     padding: EdgeInsets.all(16.0),
+                     child: Text("Payment History", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                   ),
+                   Expanded(
+                     child: _paymentDetails.isEmpty 
+                     ? const Center(child: Text("No payments recorded."))
+                     : ListView.separated(
+                        controller: scrollController,
+                        itemCount: _paymentDetails.length,
+                        separatorBuilder: (c, i) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final p = _paymentDetails[index];
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.green.withOpacity(0.1),
+                              child: const Icon(Icons.receipt_long, color: Colors.green, size: 20),
+                            ),
+                            title: Text(p['eventName'] ?? 'Event'),
+                            subtitle: Text(DateFormat('MMM d, yyyy • h:mm a').format(p['date'])),
+                            trailing: Text(
+                              'RM${(p['amount'] as double).toStringAsFixed(2)}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          );
+                        }
+                     ),
+                   ),
+                ],
+              );
+            }, 
+          ),
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.green.withOpacity(0.3), width: 1),
+           boxShadow: [
+              BoxShadow(
+                color: Colors.green.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+             Container(
+               padding: const EdgeInsets.all(10),
+               decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), shape: BoxShape.circle),
+               child: const Icon(Icons.account_balance_wallet, color: Colors.green, size: 24),
+             ),
+             const SizedBox(width: 16),
+             Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                  const Text("Money Spent", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600, fontSize: 12)),
+                  Text(
+                    'RM${_totalSpent.toStringAsFixed(2)}',
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
+                  ),
+               ],
+             ),
+             const Spacer(),
+             const Icon(Icons.chevron_right, color: Colors.grey),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRevenueCard() {
+    return GestureDetector(
+      onTap: () {
+         showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+          builder: (context) => DraggableScrollableSheet(
+            initialChildSize: 0.5,
+            minChildSize: 0.3,
+            maxChildSize: 0.9,
+            expand: false,
+            builder: (context, scrollController) {
+              return Column(
+                children: [
+                   Container(
+                     margin: const EdgeInsets.only(top: 8),
+                     height: 4, width: 40,
+                     decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                   ),
+                   const Padding(
+                     padding: EdgeInsets.all(16.0),
+                     child: Text("Top Revenue Events", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                   ),
+                   Expanded(
+                     child: _topRevenueEvents.isEmpty 
+                     ? const Center(child: Text("No revenue recorded."))
+                     : ListView.separated(
+                        controller: scrollController,
+                        itemCount: _topRevenueEvents.length,
+                        separatorBuilder: (c, i) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final e = _topRevenueEvents[index];
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.teal.withOpacity(0.1),
+                              child: Text(
+                                '${index + 1}',
+                                style: const TextStyle(color: Colors.teal, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            title: Text(e['eventName'] ?? 'Event'),
+                            subtitle: Text('${e['attendees']} attendees'),
+                            trailing: Text(
+                              'RM${(e['revenue'] as double).toStringAsFixed(2)}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          );
+                        }
+                     ),
+                   ),
+                ],
+              );
+            }, 
+          ),
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.teal.withOpacity(0.3), width: 1),
+           boxShadow: [
+              BoxShadow(
+                color: Colors.teal.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+             Container(
+               padding: const EdgeInsets.all(10),
+               decoration: BoxDecoration(color: Colors.teal.withOpacity(0.1), shape: BoxShape.circle),
+               child: const Icon(Icons.monetization_on, color: Colors.teal, size: 24),
+             ),
+             const SizedBox(width: 16),
+             Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                  const Text("Total Revenue", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600, fontSize: 12)),
+                  Text(
+                    'RM${_totalRevenue.toStringAsFixed(2)}',
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
+                  ),
+               ],
+             ),
+             const Spacer(),
+             const Icon(Icons.chevron_right, color: Colors.grey),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class TimelineItem {
   final DateTime date;
   final String title;
   final String type;
+  final String? details;
+  final String? id;
 
   TimelineItem({
     required this.date,
     required this.title,
     required this.type,
+    this.details,
+    this.id,
   });
 }
