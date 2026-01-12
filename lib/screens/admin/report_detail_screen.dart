@@ -233,10 +233,12 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                   builder: (context, userSnapshot) {
                     String clubName = 'Unknown Club';
                     String userName = 'Loading...';
+                    String? eventImageUrl;
                     
                     if (eventSnapshot.hasData && eventSnapshot.data != null && eventSnapshot.data!.exists) {
                       final eventData = eventSnapshot.data!.data() as Map<String, dynamic>;
                       clubName = eventData['clubName'] ?? 'Unknown Club';
+                      eventImageUrl = eventData['imageUrl'];
                     }
                     
                     if (userSnapshot.hasData && userSnapshot.data != null && userSnapshot.data!.exists) {
@@ -251,7 +253,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                         children: [
                           // Event Image or First Letter Avatar
                           FutureBuilder<String?>(
-                            future: _imageFuture,
+                            future: eventImageUrl != null
+                                ? StorageService().resolveImageUrl(eventImageUrl)
+                                : Future.value(null),
                             builder: (context, imgSnapshot) {
                               if (imgSnapshot.hasData && imgSnapshot.data != null && imgSnapshot.data!.isNotEmpty) {
                                 return Container(
@@ -619,47 +623,36 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
 
                   // Action Buttons
                   if (r.status != 'resolved' && r.status != 'dismissed') ...[
-                    // DELETE CONTENT BUTTON
+                    // Delete Button Removed for Admin
                     SizedBox(
                       width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _isSaving ? null : _deleteReportedContent,
-                        icon: const Icon(Icons.delete_forever),
-                        label: Text('DELETE ${r.type.toUpperCase()}'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _isSaving ? null : () => _updateStatus('resolved'),
+                              icon: const Icon(Icons.check, color: Colors.green),
+                              label: const Text('Resolve', style: TextStyle(color: Colors.green)),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                side: const BorderSide(color: Colors.green),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _isSaving ? null : () => _updateStatus('dismissed'),
+                              icon: const Icon(Icons.close, color: Colors.black87),
+                              label: const Text('Dismiss', style: TextStyle(color: Colors.black87)),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                side: const BorderSide(color: Colors.grey),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _isSaving ? null : () => _updateStatus('resolved'),
-                            icon: const Icon(Icons.check, color: Colors.green),
-                            label: const Text('Resolve', style: TextStyle(color: Colors.green)),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              side: const BorderSide(color: Colors.green),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _isSaving ? null : () => _updateStatus('dismissed'),
-                            icon: const Icon(Icons.close, color: Colors.black87),
-                            label: const Text('Dismiss', style: TextStyle(color: Colors.black87)),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              side: const BorderSide(color: Colors.grey),
-                            ),
-                          ),
-                        ),
-                      ],
                     ),
                   ] else ...[
                     Container(
