@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../widgets/role_based_bottom_nav.dart';
 import 'event_discovery.dart';
 import 'my_bookings.dart';
-import 'participant_analytics_screen.dart'; 
 import 'qr_scanner_page.dart'; // <--- 1. IMPORT ADDED
 
 class ParticipantHomeScreen extends StatefulWidget {
@@ -19,7 +18,6 @@ class _ParticipantHomeScreenState extends State<ParticipantHomeScreen> {
   final List<Widget> _screens = [
     const EventDiscoveryScreen(),
     MyBookingsScreen(),
-    const ParticipantAnalyticsScreen(),
     const ProfileScreen()
   ];
 

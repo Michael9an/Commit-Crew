@@ -116,6 +116,51 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
   int _activeParticipantsCount = 0;
   int _inactiveParticipantsCount = 0;
 
+  List<Map<String, dynamic>> _fillMissingDates(List<Map<String, dynamic>> data) {
+    if (data.isEmpty && _selectedDateRange == null) return [];
+
+    DateTime start;
+    DateTime end;
+
+    if (_selectedDateRange != null) {
+      start = _selectedDateRange!.start;
+      end = _selectedDateRange!.end;
+    } else {
+      if (data.isEmpty) return [];
+      // Sort first to find min/max
+      final sorted = List<Map<String, dynamic>>.from(data)
+        ..sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+      start = sorted.first['date'] as DateTime;
+      end = sorted.last['date'] as DateTime;
+    }
+
+    // Normalize to start of day
+    start = DateTime(start.year, start.month, start.day);
+    end = DateTime(end.year, end.month, end.day);
+
+    Map<String, Map<String, dynamic>> dataMap = {};
+    for (var item in data) {
+      final date = item['date'] as DateTime;
+      final key = DateFormat('yyyy-MM-dd').format(date);
+      dataMap[key] = item;
+    }
+
+    List<Map<String, dynamic>> filled = [];
+    final days = end.difference(start).inDays;
+    
+    for (int i = 0; i <= days; i++) {
+      final d = start.add(Duration(days: i));
+      final key = DateFormat('yyyy-MM-dd').format(d);
+      if (dataMap.containsKey(key)) {
+        filled.add(dataMap[key]!);
+      } else {
+        // Ensure count type matches (int/double handled by dynamic but safer to use 0)
+        filled.add({'date': d, 'count': 0});
+      }
+    }
+    return filled;
+  }
+
   Future<void> _loadParticipantsData() async {
     final eventsSnapshot = await FirebaseFirestore.instance.collection('events').get();
     final usersSnapshot = await FirebaseFirestore.instance.collection('users')
@@ -216,10 +261,11 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
     }
     
     // 1. Timeline Chart Data (Interaction)
-    _chartData = dailyInteraction.entries.map((e) => {
+    final rawData = dailyInteraction.entries.map((e) => {
       'date': DateTime.parse(e.key),
       'count': e.value,
-    }).toList()..sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+    }).toList();
+    _chartData = _fillMissingDates(rawData);
     
     // 2. Pie Chart Data (Active vs Inactive)
     _activeParticipantsCount = participantCounts.keys.length;
@@ -257,7 +303,7 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
       }
     }
     
-    _totalCount = allParticipants.length;
+    _totalCount = _activeParticipantsCount;
   }
 
   Future<void> _loadClubsData() async {
@@ -289,10 +335,11 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
       }
     }
     
-    _chartData = dailyActiveClubs.entries.map((e) => {
+    final rawData = dailyActiveClubs.entries.map((e) => {
       'date': DateTime.parse(e.key),
       'count': e.value.length,
-    }).toList()..sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+    }).toList();
+    _chartData = _fillMissingDates(rawData);
     
     // 2. Pie Chart Metrics
     _activeClubsCount = 0;
@@ -394,10 +441,11 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
       }
     }
     
-    _chartData = dailyCounts.entries.map((e) => {
+    final rawData = dailyCounts.entries.map((e) => {
       'date': DateTime.parse(e.key),
       'count': e.value,
-    }).toList()..sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+    }).toList();
+    _chartData = _fillMissingDates(rawData);
 
     // 4. Member Composition (New vs Returning)
     _newUsersCount = 0;
@@ -534,10 +582,11 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
       }
     }
     
-    _chartData = dailyCounts.entries.map((e) => {
+    final rawData = dailyCounts.entries.map((e) => {
       'date': DateTime.parse(e.key),
       'count': e.value,
-    }).toList()..sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+    }).toList();
+    _chartData = _fillMissingDates(rawData);
     
     _listData = events.map((e) {
       final clubData = clubsMap[e.clubId];
@@ -629,10 +678,11 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
         }
       }
       
-      _chartData = dailyCounts.entries.map((e) => {
+      final rawData = dailyCounts.entries.map((e) => {
         'date': DateTime.parse(e.key),
         'count': e.value,
-      }).toList()..sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+      }).toList();
+      _chartData = _fillMissingDates(rawData);
       
       // Calculate Top 5 Reported Events
       final sortedEventIds = eventReportCounts.entries.toList()
@@ -711,10 +761,11 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
       }
     }
     
-    _chartData = dailyRevenue.entries.map((e) => {
+    final rawData = dailyRevenue.entries.map((e) => {
       'date': DateTime.parse(e.key),
       'count': e.value, // 'count' is used for the Y-axis value in the line chart
-    }).toList()..sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+    }).toList();
+    _chartData = _fillMissingDates(rawData);
     
     // Group by club
     _topClubs = clubRevenue.entries.map((e) {
@@ -959,18 +1010,40 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                       scrollDirection: Axis.horizontal,
                       child: Container(
                         height: 200,
-                        width: _chartData.length * 60.0 < MediaQuery.of(context).size.width - 64
+                        width: _chartData.length * 40.0 < MediaQuery.of(context).size.width - 64
                             ? MediaQuery.of(context).size.width - 64
-                            : _chartData.length * 60.0,
+                            : _chartData.length * 40.0,
                         padding: const EdgeInsets.fromLTRB(25, 0, 25, 0),
-                        child: LineChart(
-                          LineChartData(
-                            gridData: const FlGridData(show: false),
+                        child: BarChart(
+                          BarChartData(
+                            barTouchData: BarTouchData(
+                              touchTooltipData: BarTouchTooltipData(
+                                getTooltipColor: (_) => Colors.black.withOpacity(0.7),
+                                tooltipPadding: const EdgeInsets.all(8),
+                                fitInsideHorizontally: true, 
+                                fitInsideVertically: true,
+                                tooltipMargin: 0,
+                                getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                  final date = _chartData[group.x.toInt()]['date'] as DateTime;
+                                  return BarTooltipItem(
+                                    '${DateFormat('MMM dd').format(date)}\n',
+                                    const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                    children: [
+                                      TextSpan(
+                                        text: rod.toY.toInt().toString(),
+                                        style: const TextStyle(color: Colors.yellow, fontSize: 16, fontWeight: FontWeight.w500),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
                             titlesData: FlTitlesData(
+                              show: true,
                               bottomTitles: AxisTitles(
                                 sideTitles: SideTitles(
                                   showTitles: true,
-                                  getTitlesWidget: (value, meta) {
+                                  getTitlesWidget: (double value, TitleMeta meta) {
                                     final index = value.toInt();
                                     if (index >= 0 && index < _chartData.length) {
                                       return Padding(
@@ -991,29 +1064,21 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                               rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                             ),
                             borderData: FlBorderData(show: false),
-                            lineBarsData: [
-                              LineChartBarData(
-                                spots: _chartData.asMap().entries.map((e) {
-                                  return FlSpot(e.key.toDouble(), (e.value['count'] as int).toDouble());
-                                }).toList(),
-                                isCurved: true,
-                                color: Colors.blue,
-                                barWidth: 3,
-                                dotData: const FlDotData(show: false),
-                                belowBarData: BarAreaData(
-                                  show: true,
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      Colors.blue.withOpacity(0.3),
-                                      Colors.blue.withOpacity(0.0),
-                                    ],
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
+                            gridData: const FlGridData(show: false),
+                            barGroups: _chartData.asMap().entries.map((e) {
+                              final count = (e.value['count'] as num).toDouble();
+                              return BarChartGroupData(
+                                x: e.key,
+                                barRods: [
+                                  BarChartRodData(
+                                    toY: count,
+                                    color: Colors.blue,
+                                    width: 16,
+                                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)),
                                   ),
-                                ),
-                              ),
-                            ],
-                            minY: 0,
+                                ],
+                              );
+                            }).toList(),
                           ),
                         ),
                       ),
@@ -1144,18 +1209,40 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                       scrollDirection: Axis.horizontal,
                       child: Container(
                         height: 200,
-                        width: _chartData.length * 60.0 < MediaQuery.of(context).size.width - 64
+                        width: _chartData.length * 40.0 < MediaQuery.of(context).size.width - 64
                             ? MediaQuery.of(context).size.width - 64
-                            : _chartData.length * 60.0,
+                            : _chartData.length * 40.0,
                         padding: const EdgeInsets.fromLTRB(25, 0, 25, 0),
-                        child: LineChart(
-                          LineChartData(
-                            gridData: const FlGridData(show: false),
+                        child: BarChart(
+                          BarChartData(
+                            barTouchData: BarTouchData(
+                              touchTooltipData: BarTouchTooltipData(
+                                getTooltipColor: (_) => Colors.black.withOpacity(0.7),
+                                tooltipPadding: const EdgeInsets.all(8),
+                                fitInsideHorizontally: true, 
+                                fitInsideVertically: true,
+                                tooltipMargin: 0,
+                                getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                  final date = _chartData[group.x.toInt()]['date'] as DateTime;
+                                  return BarTooltipItem(
+                                    '${DateFormat('MMM dd').format(date)}\n',
+                                    const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                    children: [
+                                      TextSpan(
+                                        text: rod.toY.toInt().toString(),
+                                        style: const TextStyle(color: Colors.yellow, fontSize: 16, fontWeight: FontWeight.w500),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
                             titlesData: FlTitlesData(
+                              show: true,
                               bottomTitles: AxisTitles(
                                 sideTitles: SideTitles(
                                   showTitles: true,
-                                  getTitlesWidget: (value, meta) {
+                                  getTitlesWidget: (double value, TitleMeta meta) {
                                     final index = value.toInt();
                                     if (index >= 0 && index < _chartData.length) {
                                       return Padding(
@@ -1176,29 +1263,21 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                               rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                             ),
                             borderData: FlBorderData(show: false),
-                            lineBarsData: [
-                              LineChartBarData(
-                                spots: _chartData.asMap().entries.map((e) {
-                                  return FlSpot(e.key.toDouble(), (e.value['count'] as int).toDouble());
-                                }).toList(),
-                                isCurved: true,
-                                color: Colors.blue,
-                                barWidth: 3,
-                                dotData: const FlDotData(show: false),
-                                belowBarData: BarAreaData(
-                                  show: true,
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      Colors.blue.withOpacity(0.3),
-                                      Colors.blue.withOpacity(0.0),
-                                    ],
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
+                            gridData: const FlGridData(show: false),
+                            barGroups: _chartData.asMap().entries.map((e) {
+                              final count = (e.value['count'] as num).toDouble();
+                              return BarChartGroupData(
+                                x: e.key,
+                                barRods: [
+                                  BarChartRodData(
+                                    toY: count,
+                                    color: Colors.blue,
+                                    width: 16,
+                                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)),
                                   ),
-                                ),
-                              ),
-                            ],
-                            minY: 0,
+                                ],
+                              );
+                            }).toList(),
                           ),
                         ),
                       ),
@@ -1340,18 +1419,40 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                       scrollDirection: Axis.horizontal,
                       child: Container(
                         height: 200,
-                        width: _chartData.length * 60.0 < MediaQuery.of(context).size.width - 64
+                        width: _chartData.length * 40.0 < MediaQuery.of(context).size.width - 64
                             ? MediaQuery.of(context).size.width - 64
-                            : _chartData.length * 60.0,
+                            : _chartData.length * 40.0,
                         padding: const EdgeInsets.fromLTRB(25, 0, 25, 0),
-                        child: LineChart(
-                          LineChartData(
-                            gridData: const FlGridData(show: false),
+                        child: BarChart(
+                          BarChartData(
+                            barTouchData: BarTouchData(
+                              touchTooltipData: BarTouchTooltipData(
+                                getTooltipColor: (_) => Colors.black.withOpacity(0.7),
+                                tooltipPadding: const EdgeInsets.all(8),
+                                fitInsideHorizontally: true, 
+                                fitInsideVertically: true,
+                                tooltipMargin: 0,
+                                getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                  final date = _chartData[group.x.toInt()]['date'] as DateTime;
+                                  return BarTooltipItem(
+                                    '${DateFormat('MMM dd').format(date)}\n',
+                                    const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                    children: [
+                                      TextSpan(
+                                        text: rod.toY.toInt().toString(),
+                                        style: const TextStyle(color: Colors.yellow, fontSize: 16, fontWeight: FontWeight.w500),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
                             titlesData: FlTitlesData(
+                              show: true,
                               bottomTitles: AxisTitles(
                                 sideTitles: SideTitles(
                                   showTitles: true,
-                                  getTitlesWidget: (value, meta) {
+                                  getTitlesWidget: (double value, TitleMeta meta) {
                                     final index = value.toInt();
                                     if (index >= 0 && index < _chartData.length) {
                                       return Padding(
@@ -1372,29 +1473,21 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                               rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                             ),
                             borderData: FlBorderData(show: false),
-                            lineBarsData: [
-                              LineChartBarData(
-                                spots: _chartData.asMap().entries.map((e) {
-                                  return FlSpot(e.key.toDouble(), (e.value['count'] as int).toDouble());
-                                }).toList(),
-                                isCurved: true,
-                                color: Colors.red,
-                                barWidth: 3,
-                                dotData: const FlDotData(show: false),
-                                belowBarData: BarAreaData(
-                                  show: true,
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      Colors.red.withOpacity(0.3),
-                                      Colors.red.withOpacity(0.0),
-                                    ],
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
+                            gridData: const FlGridData(show: false),
+                            barGroups: _chartData.asMap().entries.map((e) {
+                              final count = (e.value['count'] as num).toDouble();
+                              return BarChartGroupData(
+                                x: e.key,
+                                barRods: [
+                                  BarChartRodData(
+                                    toY: count,
+                                    color: Colors.red,
+                                    width: 16,
+                                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)),
                                   ),
-                                ),
-                              ),
-                            ],
-                            minY: 0,
+                                ],
+                              );
+                            }).toList(),
                           ),
                         ),
                       ),
@@ -1542,13 +1635,35 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                           scrollDirection: Axis.horizontal,
                           child: Container(
                             height: 400,
-                            width: _chartData.length * 60.0 < MediaQuery.of(context).size.width - 64
+                            width: _chartData.length * 40.0 < MediaQuery.of(context).size.width - 64
                                 ? MediaQuery.of(context).size.width - 64
-                                : _chartData.length * 60.0,
+                                : _chartData.length * 40.0,
                             padding: const EdgeInsets.fromLTRB(25, 20, 25, 10),
-                            child: LineChart(
-                              LineChartData(
+                            child: BarChart(
+                              BarChartData(
                                 maxY: displayMaxY,
+                                barTouchData: BarTouchData(
+                                  touchTooltipData: BarTouchTooltipData(
+                                    getTooltipColor: (_) => Colors.black.withOpacity(0.7),
+                                    tooltipPadding: const EdgeInsets.all(8),
+                                    fitInsideHorizontally: true, 
+                                    fitInsideVertically: true,
+                                    tooltipMargin: 0,
+                                    getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                      final date = _chartData[group.x.toInt()]['date'] as DateTime;
+                                      return BarTooltipItem(
+                                        '${DateFormat('MMM dd').format(date)}\n',
+                                        const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                        children: [
+                                          TextSpan(
+                                            text: 'RM ${rod.toY.toStringAsFixed(2)}',
+                                            style: const TextStyle(color: Colors.yellow, fontSize: 16, fontWeight: FontWeight.w500),
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                                ),
                                 gridData: const FlGridData(show: false),
                                 titlesData: FlTitlesData(
                                   bottomTitles: AxisTitles(
@@ -1587,30 +1702,20 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                                   rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                                 ),
                                 borderData: FlBorderData(show: false),
-                                lineBarsData: [
-                                  LineChartBarData(
-                                    spots: _chartData.asMap().entries.map((e) {
-                                      return FlSpot(e.key.toDouble(), (e.value['count'] as num).toDouble());
-                                    }).toList(),
-                                    isCurved: true,
-                                    preventCurveOverShooting: true,
-                                    color: Colors.teal,
-                                    barWidth: 3,
-                                    dotData: const FlDotData(show: true),
-                                    belowBarData: BarAreaData(
-                                      show: true,
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          Colors.teal.withOpacity(0.3),
-                                          Colors.teal.withOpacity(0.0),
-                                        ],
-                                        begin: Alignment.topCenter,
-                                        end: Alignment.bottomCenter,
+                                barGroups: _chartData.asMap().entries.map((e) {
+                                  final count = (e.value['count'] as num).toDouble();
+                                  return BarChartGroupData(
+                                    x: e.key,
+                                    barRods: [
+                                      BarChartRodData(
+                                        toY: count,
+                                        color: Colors.teal,
+                                        width: 16,
+                                        borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)),
                                       ),
-                                    ),
-                                  ),
-                                ],
-                                minY: 0,
+                                    ],
+                                  );
+                                }).toList(),
                               ),
                             ),
                           ),
@@ -1667,18 +1772,40 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                       scrollDirection: Axis.horizontal,
                       child: Container(
                         height: 200,
-                        width: _chartData.length * 60.0 < MediaQuery.of(context).size.width - 64
+                        width: _chartData.length * 40.0 < MediaQuery.of(context).size.width - 64
                             ? MediaQuery.of(context).size.width - 64
-                            : _chartData.length * 60.0,
+                            : _chartData.length * 40.0,
                         padding: const EdgeInsets.fromLTRB(25, 0, 25, 0),
-                        child: LineChart(
-                          LineChartData(
-                            gridData: const FlGridData(show: false),
+                        child: BarChart(
+                          BarChartData(
+                            barTouchData: BarTouchData(
+                              touchTooltipData: BarTouchTooltipData(
+                                getTooltipColor: (_) => Colors.black.withOpacity(0.7),
+                                tooltipPadding: const EdgeInsets.all(8),
+                                fitInsideHorizontally: true, 
+                                fitInsideVertically: true,
+                                tooltipMargin: 0,
+                                getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                  final date = _chartData[group.x.toInt()]['date'] as DateTime;
+                                  return BarTooltipItem(
+                                    '${DateFormat('MMM dd').format(date)}\n',
+                                    const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                    children: [
+                                      TextSpan(
+                                        text: rod.toY.toInt().toString(),
+                                        style: const TextStyle(color: Colors.yellow, fontSize: 16, fontWeight: FontWeight.w500),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
                             titlesData: FlTitlesData(
+                              show: true,
                               bottomTitles: AxisTitles(
                                 sideTitles: SideTitles(
                                   showTitles: true,
-                                  getTitlesWidget: (value, meta) {
+                                  getTitlesWidget: (double value, TitleMeta meta) {
                                     final index = value.toInt();
                                     if (index >= 0 && index < _chartData.length) {
                                       return Padding(
@@ -1699,29 +1826,21 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                               rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                             ),
                             borderData: FlBorderData(show: false),
-                            lineBarsData: [
-                              LineChartBarData(
-                                spots: _chartData.asMap().entries.map((e) {
-                                  return FlSpot(e.key.toDouble(), (e.value['count'] as int).toDouble());
-                                }).toList(),
-                                isCurved: true,
-                                color: Colors.blue, // Blue
-                                barWidth: 3,
-                                dotData: const FlDotData(show: false),
-                                belowBarData: BarAreaData(
-                                  show: true,
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      Colors.blue.withOpacity(0.3),
-                                      Colors.blue.withOpacity(0.0),
-                                    ],
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
+                            gridData: const FlGridData(show: false),
+                            barGroups: _chartData.asMap().entries.map((e) {
+                              final count = (e.value['count'] as num).toDouble();
+                              return BarChartGroupData(
+                                x: e.key,
+                                barRods: [
+                                  BarChartRodData(
+                                    toY: count,
+                                    color: Colors.blue,
+                                    width: 16,
+                                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)),
                                   ),
-                                ),
-                              ),
-                            ],
-                            minY: 0,
+                                ],
+                              );
+                            }).toList(),
                           ),
                         ),
                       ),
@@ -1863,18 +1982,40 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                       scrollDirection: Axis.horizontal,
                       child: Container(
                         height: 200,
-                        width: _chartData.length * 60.0 < MediaQuery.of(context).size.width - 64
+                        width: _chartData.length * 40.0 < MediaQuery.of(context).size.width - 64
                             ? MediaQuery.of(context).size.width - 64
-                            : _chartData.length * 60.0,
+                            : _chartData.length * 40.0,
                         padding: const EdgeInsets.fromLTRB(25, 0, 25, 0),
-                        child: LineChart(
-                          LineChartData(
-                            gridData: const FlGridData(show: false),
+                        child: BarChart(
+                          BarChartData(
+                            barTouchData: BarTouchData(
+                              touchTooltipData: BarTouchTooltipData(
+                                getTooltipColor: (_) => Colors.black.withOpacity(0.7),
+                                tooltipPadding: const EdgeInsets.all(8),
+                                fitInsideHorizontally: true, 
+                                fitInsideVertically: true,
+                                tooltipMargin: 0,
+                                getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                  final date = _chartData[group.x.toInt()]['date'] as DateTime;
+                                  return BarTooltipItem(
+                                    '${DateFormat('MMM dd').format(date)}\n',
+                                    const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                    children: [
+                                      TextSpan(
+                                        text: rod.toY.toInt().toString(),
+                                        style: const TextStyle(color: Colors.yellow, fontSize: 16, fontWeight: FontWeight.w500),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
                             titlesData: FlTitlesData(
+                              show: true,
                               bottomTitles: AxisTitles(
                                 sideTitles: SideTitles(
                                   showTitles: true,
-                                  getTitlesWidget: (value, meta) {
+                                  getTitlesWidget: (double value, TitleMeta meta) {
                                     final index = value.toInt();
                                     if (index >= 0 && index < _chartData.length) {
                                       return Padding(
@@ -1895,29 +2036,21 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                               rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                             ),
                             borderData: FlBorderData(show: false),
-                            lineBarsData: [
-                              LineChartBarData(
-                                spots: _chartData.asMap().entries.map((e) {
-                                  return FlSpot(e.key.toDouble(), (e.value['count'] as int).toDouble());
-                                }).toList(),
-                                isCurved: true,
-                                color: Colors.blue,
-                                barWidth: 3,
-                                dotData: const FlDotData(show: false),
-                                belowBarData: BarAreaData(
-                                  show: true,
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      Colors.blue.withOpacity(0.3),
-                                      Colors.blue.withOpacity(0.0),
-                                    ],
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
+                            gridData: const FlGridData(show: false),
+                            barGroups: _chartData.asMap().entries.map((e) {
+                              final count = (e.value['count'] as num).toDouble();
+                              return BarChartGroupData(
+                                x: e.key,
+                                barRods: [
+                                  BarChartRodData(
+                                    toY: count,
+                                    color: Colors.blue,
+                                    width: 16,
+                                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4)),
                                   ),
-                                ),
-                              ),
-                            ],
-                            minY: 0,
+                                ],
+                              );
+                            }).toList(),
                           ),
                         ),
                       ),
