@@ -39,9 +39,9 @@ class Register {
     this.amountPaid = 0.0,
   });
 
-  factory Register.fromFirestore(Map<String, dynamic> data) {
+  factory Register.fromFirestore(Map<String, dynamic> data, {String? documentId}) {
     return Register(
-      id: data['id'] ?? '',
+      id: documentId ?? data['id'] ?? '',
       eventId: data['eventId'] ?? '',
       clubId: data['clubId'] ?? '',
       fullName: data['fullName'] ?? '',

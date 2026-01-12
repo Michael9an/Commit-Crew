@@ -106,8 +106,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
 
         if (imageUrl != null) {
+          // Resolve URL if it's a Google Drive link
+          final resolvedUrl = await _storageService.resolveImageUrl(imageUrl);
+          
           final updatedUser = currentUser.copyWith(
-            photoUrl: imageUrl,
+            photoUrl: resolvedUrl ?? imageUrl,
             updatedAt: DateTime.now(),
           );
 
@@ -329,54 +332,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
 
         return Scaffold(
+          backgroundColor: const Color(0xFFF8F9FA), // Light background color
           appBar: AppBar(
-            title: const Text('Profile'),
-            actions: [
-              if (!_isEditing)
-                IconButton(
-                  icon: const Icon(Icons.edit),
-                  onPressed: () {
-                    setState(() {
-                      _isEditing = true;
-                    });
-                  },
-                ),
-              if (_isEditing)
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () {
-                    setState(() {
-                      _isEditing = false;
-                      _loadUserData(); // Reset changes
-                    });
-                  },
-                ),
-            ],
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            iconTheme: const IconThemeData(color: Colors.black),
           ),
           body: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Profile Header
                       _buildProfileHeader(user),
                       const SizedBox(height: 24),
                       
-                      // Profile Information
-                      _buildProfileInfo(user),
-                      const SizedBox(height: 24),
-                      
-                      // Actions
-                      _buildActionButtons(),
-                      const SizedBox(height: 24),
-                      
-                      // Statistics (if any)
-                      _buildStatistics(user),
-                      const SizedBox(height: 24),
+                      // Profile Info
+                      _buildSectionHeader('PROFILE INFO'),
+                      const SizedBox(height: 16),
+                      _buildProfileInfoGroup(user),
+                      const SizedBox(height: 32),
+
+                      // Account
+                      _buildSectionHeader('ACCOUNT'),
+                      const SizedBox(height: 16),
+                      _buildAccountSection(),
+                      const SizedBox(height: 32),
+
+                      // Support
+                      _buildSectionHeader('SUPPORT'),
+                      const SizedBox(height: 16),
+                      _buildSupportSection(),
+                      const SizedBox(height: 32),
                       
                       // Danger Zone
-                      _buildDangerZone(),
+                      _buildSectionHeader('DANGER ZONE', color: Colors.orange), // Reference shows orange/red title
+                      const SizedBox(height: 16),
+                      _buildDangerZoneGroup(),
+                      const SizedBox(height: 32),
                     ],
                   ),
                 ),
@@ -385,270 +380,358 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildProfileHeader(UserModel user) {
-    return Column(
-      children: [
-        Stack(
-          alignment: Alignment.bottomRight,
-          children: [
-            CircleAvatar(
-              radius: 50,
-              backgroundImage: user.photoUrl.isNotEmpty
-                  ? NetworkImage(user.photoUrl)
-                  : const AssetImage('assets/default_avatar.png') as ImageProvider,
-              child: user.photoUrl.isEmpty
-                  ? const Icon(Icons.person, size: 50, color: Colors.white)
-                  : null,
-            ),
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: Theme.of(context).primaryColor,
-              child: IconButton(
-                icon: const Icon(Icons.camera_alt, size: 16, color: Colors.white),
-                onPressed: _changeProfilePicture,
-                padding: EdgeInsets.zero,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Text(
-          user.name,
-          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          user.email,
-          style: TextStyle(fontSize: 16, color: Colors.grey),
-        ),
-        const SizedBox(height: 8),
-        Chip(
-          label: Text(
-            user.role.toUpperCase(),
-            style: const TextStyle(fontSize: 12, color: Colors.white),
-          ),
-          backgroundColor: Theme.of(context).primaryColor,
-        ),
-      ],
+  Widget _buildSectionHeader(String title, {Color? color}) {
+    return Text(
+      title,
+      style: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.bold,
+        color: color ?? Colors.grey[600],
+        letterSpacing: 1.2,
+      ),
     );
   }
 
-  Widget _buildProfileInfo(UserModel user) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Profile Information',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            _buildEditableField(
-              label: 'Full Name',
-              value: _nameController.text,
-              controller: _nameController,
-              isEditing: _isEditing,
-            ),
-            const SizedBox(height: 12),
-            _buildEditableField(
-              label: 'Email',
-              value: _emailController.text,
-              controller: _emailController,
-              isEditing: _isEditing,
-            ),
-            const SizedBox(height: 12),
-            _buildReadOnlyField(
-              label: 'Member Since',
-              value: user.createdAt != null
-                  ? '${user.createdAt!.day}/${user.createdAt!.month}/${user.createdAt!.year}'
-                  : 'Not available',
-            ),
-            const SizedBox(height: 12),
-            _buildReadOnlyField(
-              label: 'User ID',
-              value: user.id,
-            ),
-            if (_isEditing) ...[
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _updateProfile,
-                  child: const Text('Save Changes'),
+  Widget _buildProfileHeader(UserModel user) {
+    return Center( // Center the header content
+      child: Column(
+        children: [
+          Stack(
+            alignment: Alignment.bottomRight,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 4),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 10,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
+                ),
+                child: CircleAvatar(
+                  radius: 50,
+                  backgroundImage: user.photoUrl.isNotEmpty
+                      ? NetworkImage(user.photoUrl)
+                      : const AssetImage('assets/default_avatar.png') as ImageProvider,
+                  child: user.photoUrl.isEmpty
+                      ? const Icon(Icons.person, size: 50, color: Colors.white)
+                      : null,
+                ),
+              ),
+              GestureDetector(
+                onTap: _changeProfilePicture,
+                child: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: Theme.of(context).primaryColor,
+                  child: const Icon(Icons.camera_alt, size: 18, color: Colors.white),
                 ),
               ),
             ],
-          ],
-        ),
+          ),
+          const SizedBox(height: 16),
+          if (_isEditing)
+             SizedBox(
+               width: 200,
+               child: TextField(
+                 controller: _nameController,
+                 textAlign: TextAlign.center,
+                 style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                 decoration: const InputDecoration(
+                   border: UnderlineInputBorder(),
+                   contentPadding: EdgeInsets.zero,
+                 ),
+               ),
+             )
+          else
+            Text(
+              user.name,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.deepPurple[50],
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              user.role.toUpperCase(),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.deepPurple[700],
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.0,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: () {
+              setState(() {
+                if (_isEditing) {
+                  _updateProfile(); // Save if already editing
+                } else {
+                  _isEditing = true; // Start editing
+                }
+              });
+            },
+            icon: Icon(
+              _isEditing ? Icons.check : Icons.edit_outlined, 
+              size: 18
+            ),
+            label: Text(_isEditing ? 'Save Profile' : 'Edit Profile'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.grey[700],
+              side: BorderSide(color: Colors.grey[300]!),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildEditableField({
+  Widget _buildProfileInfoGroup(UserModel user) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          _buildInfoRow(
+            icon: Icons.email_outlined,
+            label: 'EMAIL ADDRESS',
+            value: user.email,
+            showDivider: true,
+          ),
+          _buildInfoRow(
+            icon: Icons.calendar_today_outlined,
+            label: 'MEMBER SINCE',
+            value: user.createdAt != null
+                  ? '${user.createdAt!.day}/${user.createdAt!.month}/${user.createdAt!.year}'
+                  : 'Not available',
+            showDivider: true,
+          ),
+          _buildInfoRow(
+            icon: Icons.tag,
+            label: 'USER ID',
+            value: user.id,
+            showDivider: false,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow({
+    required IconData icon,
     required String label,
     required String value,
-    required TextEditingController controller,
-    required bool isEditing,
+    bool showDivider = true,
   }) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey[600]),
-        ),
-        const SizedBox(height: 4),
-        isEditing
-            ? TextField(controller: controller)
-            : Text(
-                value,
-                style: const TextStyle(fontSize: 16),
-              ),
-      ],
-    );
-  }
-
-  Widget _buildReadOnlyField({required String label, required String value}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey[600]),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 16),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildActionButtons() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ListTile(
-              leading: const Icon(Icons.security, color: Colors.blue),
-              title: const Text('Change Password'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: _changePassword,
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.blue[50], // Light blue bg for icon
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: Colors.blue[600], size: 20),
             ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.notifications, color: Colors.orange),
-              title: const Text('Notification Settings'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () {
-                // Navigate to notification settings
-              },
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.privacy_tip, color: Colors.green),
-              title: const Text('Privacy Settings'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () {
-                // Navigate to privacy settings
-              },
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey[400],
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
-      ),
+        if (showDivider)
+          Padding(
+            padding: const EdgeInsets.only(left: 56, top: 16, bottom: 16),
+            child: Divider(height: 1, color: Colors.grey[100]),
+          ),
+        if (!showDivider) const SizedBox(height: 8),
+      ],
     );
   }
 
-  Widget _buildStatistics(UserModel user) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Event Statistics',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+  Widget _buildAccountSection() {
+    return _buildMenuContainer([
+       _buildMenuItem(
+        icon: Icons.security,
+        title: 'Security',
+        subtitle: 'Password, 2FA',
+        onTap: _changePassword,
+      ),
+      _buildMenuItem(
+        icon: Icons.notifications_none,
+        title: 'Notifications',
+        subtitle: 'Push, Email, SMS',
+        onTap: () {},
+      ),
+      _buildMenuItem(
+        icon: Icons.lock_outline,
+        title: 'Privacy',
+        subtitle: 'Visibility, Data',
+        onTap: () {},
+        isLast: true,
+      ),
+    ]);
+  }
+
+  Widget _buildSupportSection() {
+    return _buildMenuContainer([
+       _buildMenuItem(
+        icon: Icons.credit_card,
+        title: 'Billing',
+        onTap: () {}, 
+      ),
+      _buildMenuItem(
+        icon: Icons.help_outline,
+        title: 'Help Center',
+        onTap: () {},
+        isLast: true,
+      ),
+    ]);
+  }
+
+  Widget _buildDangerZoneGroup() {
+    return _buildMenuContainer([
+       _buildMenuItem(
+        icon: Icons.logout,
+        title: 'Log Out',
+        color: Colors.red,
+        iconColor: Colors.red,
+        iconBgColor: Colors.red[50]!,
+        onTap: _logout,
+      ),
+      _buildMenuItem(
+        icon: Icons.delete_outline,
+        title: 'Delete Account',
+        subtitle: 'Irreversible action',
+        color: Colors.red,
+        iconColor: Colors.red,
+        iconBgColor: Colors.red[50]!,
+        onTap: _deleteAccount,
+        isLast: true,
+      ),
+    ]);
+  }
+
+  Widget _buildMenuContainer(List<Widget> children) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  Widget _buildMenuItem({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required VoidCallback onTap,
+    Color color = const Color(0xFF2C3E50),
+    Color? iconColor,
+    Color iconBgColor = const Color(0xFFF3F4F6),
+    bool isLast = false,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
               children: [
-                _buildStatItem('Events Attended', '12'),
-                _buildStatItem('Upcoming', '3'),
-                _buildStatItem('Clubs', '${user.clubIds.length}'),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: iconBgColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: iconColor ?? Colors.grey[700], size: 20),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: color,
+                        ),
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[500],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.grey[300]),
               ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatItem(String label, String value) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDangerZone() {
-    return Card(
-      color: Colors.red[50],
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Danger Zone',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'These actions are irreversible. Please proceed with caution.',
-              style: TextStyle(color: Colors.red[700]),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: _logout,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.orange,
-                  side: const BorderSide(color: Colors.orange),
-                ),
-                child: const Text('Logout'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: _deleteAccount,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red,
-                  side: const BorderSide(color: Colors.red),
-                ),
-                child: const Text('Delete Account'),
-              ),
-            ),
-          ],
-        ),
+          ),
+          if (!isLast)
+            Divider(height: 1, color: Colors.grey[100], indent: 68),
+        ],
       ),
     );
   }

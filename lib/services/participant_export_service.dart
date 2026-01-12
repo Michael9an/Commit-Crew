@@ -79,10 +79,12 @@ class ParticipantExportService {
       for (var doc in registrationSnapshot.docs) {
         final data = doc.data();
         
-        // --- 1. DETERMINE PRESENCE STATUS ---
-        // If status is 'Attended', they are Present. Otherwise, they are Absent.
+        // --- FIX START ---
         String status = 'Absent'; 
-        if (data['status'] == 'Attended') {
+        // Check for lowercase 'attended' (which matches your scanner)
+        final String docStatus = (data['status'] ?? '').toString().toLowerCase();
+        
+        if (docStatus == 'attended') {
           status = 'Present';
         }
 
@@ -91,7 +93,7 @@ class ParticipantExportService {
         if (data['checkInTime'] != null) {
           try {
             final Timestamp ts = data['checkInTime'];
-            checkInTimeStr = DateFormat('hh:mm a').format(ts.toDate()); // e.g., "02:30 PM"
+            checkInTimeStr = DateFormat('hh:mm a').format(ts.toDate()); 
           } catch (e) {
             checkInTimeStr = "Error";
           }
@@ -109,7 +111,7 @@ class ParticipantExportService {
       // Handle Empty List
       if (participants.isEmpty) {
         if (context.mounted) {
-          Navigator.pop(context); // Close loading
+          Navigator.pop(context); 
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("No registration records found to export."))
           );
@@ -117,13 +119,10 @@ class ParticipantExportService {
         return;
       }
 
-      // 2. Prepare File Paths
       final directory = await getTemporaryDirectory();
-      // Sanitize filename
       final safeEventName = event.name.replaceAll(RegExp(r'[^\w\s]+'), ''); 
       File file;
 
-      // Format Event Date/Time for Header
       String eventDateStr = "Date not set";
       if (event.date != null) {
         final date = DateTime.fromMillisecondsSinceEpoch(int.parse(event.date!));

@@ -142,43 +142,59 @@ class _ContentModerationScreenState extends State<ContentModerationScreen> {
                 ),
                 const SizedBox(height: 12),
                 
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      // Reason Filter
-                      SizedBox(
-                        width: 200,
+                Row(
+                  children: [
+                    // Reason Filter
+                    Expanded(
+                      flex: 4,
+                      child: SizedBox(
+                        height: 50,
                         child: DropdownButtonFormField<String>(
                           value: _selectedReason,
                           decoration: const InputDecoration(
                             labelText: 'Reason',
                             border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
                           ),
                           isExpanded: true,
-                          items: _reasons.map((r) => DropdownMenuItem(value: r, child: Text(r, overflow: TextOverflow.ellipsis))).toList(),
+                          items: _reasons.map((r) => DropdownMenuItem(
+                            value: r, 
+                            child: Text(
+                              r, 
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 13),
+                            )
+                          )).toList(),
                           onChanged: (val) => setState(() => _selectedReason = val!),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      // Sort Filter
-                      SizedBox(
-                        width: 150,
+                    ),
+                    const SizedBox(width: 8),
+                    // Sort Filter
+                    Expanded(
+                      flex: 3,
+                      child: SizedBox(
+                        height: 50,
                         child: DropdownButtonFormField<String>(
                           value: _sortOrder,
                           decoration: const InputDecoration(
                             labelText: 'Sort By',
                             border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
                           ),
                           isExpanded: true,
-                          items: ['Newest', 'Oldest'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                          items: ['Newest', 'Oldest'].map((s) => DropdownMenuItem(
+                            value: s, 
+                            child: Text(
+                              s,
+                              style: const TextStyle(fontSize: 13),
+                            )
+                          )).toList(),
                           onChanged: (val) => setState(() => _sortOrder = val!),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
                 
                 const SizedBox(height: 16),
@@ -283,10 +299,6 @@ class _ContentModerationScreenState extends State<ContentModerationScreen> {
                     ),
                   ],
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, color: Colors.grey),
-                onPressed: () => _confirmDelete(r),
               ),
               const Icon(Icons.chevron_right, color: Colors.grey),
             ],

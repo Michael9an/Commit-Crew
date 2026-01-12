@@ -22,27 +22,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     AdminVerificationScreen(), // Add approval screen as the 4th tab
   ];
 
-  // Admin-specific bottom navigation items
-  final List<BottomNavigationBarItem> _adminNavItems = [
-    BottomNavigationBarItem(
-      icon: Icon(Icons.dashboard),
-      label: 'Overview',
-    ),
-    BottomNavigationBarItem(
-      icon: Icon(Icons.people),
-      label: 'Users',
-    ),
-    BottomNavigationBarItem(
-      icon: Icon(Icons.shield),
-      label: 'Moderate',
-    ),
-    BottomNavigationBarItem(
-      icon: Icon(Icons.approval),
-      label: 'Approvals',
-      // You can add a badge for pending approvals
-    ),
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -67,13 +46,45 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
   // Custom admin bottom navigation with 4 items
   Widget _buildAdminBottomNav() {
-    return BottomNavigationBar(
-      currentIndex: _currentIndex,
-      onTap: (index) => setState(() => _currentIndex = index),
-      type: BottomNavigationBarType.fixed,
-      items: _adminNavItems,
-      selectedItemColor: Colors.red,
-      unselectedItemColor: Colors.grey,
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('clubs')
+          .where('status', whereIn: ['pending', 'pending_approval'])
+          .snapshots(),
+      builder: (context, snapshot) {
+        final pendingCount = snapshot.hasData ? snapshot.data!.docs.length : 0;
+        
+        return BottomNavigationBar(
+          currentIndex: _currentIndex,
+          onTap: (index) => setState(() => _currentIndex = index),
+          type: BottomNavigationBarType.fixed,
+          items: [
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard),
+              label: 'Overview',
+            ),
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.people),
+              label: 'Users',
+            ),
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.shield),
+              label: 'Moderate',
+            ),
+            BottomNavigationBarItem(
+              icon: pendingCount > 0 
+                ? Badge(
+                    label: Text(pendingCount.toString()),
+                    child: const Icon(Icons.approval),
+                  )
+                : const Icon(Icons.approval),
+              label: 'Approvals',
+            ),
+          ],
+          selectedItemColor: Colors.red,
+          unselectedItemColor: Colors.grey,
+        );
+      },
     );
   }
 
@@ -81,14 +92,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Widget _buildPendingApprovalsBadge() {
     return StreamBuilder(
       stream: FirebaseFirestore.instance
-          .collection('users')
-          .where('role', isEqualTo: 'club')
-          .where('status', isEqualTo: 'pending')
+          .collection('clubs')
+          .where('status', whereIn: ['pending', 'pending_approval'])
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return IconButton(
-            icon: Icon(Icons.approval),
+            icon: const Icon(Icons.approval),
             onPressed: () => setState(() => _currentIndex = 3),
           );
         }
@@ -98,7 +108,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         return Stack(
           children: [
             IconButton(
-              icon: Icon(Icons.approval),
+              icon: const Icon(Icons.approval),
               onPressed: () => setState(() => _currentIndex = 3),
             ),
             if (pendingCount > 0)
@@ -106,20 +116,21 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 right: 8,
                 top: 8,
                 child: Container(
-                  padding: EdgeInsets.all(2),
+                  padding: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
                     color: Colors.red,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  constraints: BoxConstraints(
+                  constraints: const BoxConstraints(
                     minWidth: 16,
                     minHeight: 16,
                   ),
                   child: Text(
                     pendingCount.toString(),
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 10,
+                      fontWeight: FontWeight.bold,
                     ),
                     textAlign: TextAlign.center,
                   ),

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
 import 'dart:async';
-import 'package:qr_flutter/qr_flutter.dart'; // Added QR Import
+import 'package:qr_flutter/qr_flutter.dart'; 
 
 // --- MODELS ---
 import '../../models/event.dart';
@@ -18,6 +18,8 @@ import '../../services/review_service.dart';
 import 'report_screen.dart';
 import 'event_registration_screen.dart';
 import 'event_review_screen.dart';
+// Note: qr_scanner_page import is no longer strictly needed here if we removed the button,
+// but keeping it doesn't hurt if used elsewhere in this file.
 
 // --- MAP IMPORTS ---
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -488,6 +490,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     );
   }
 
+  // --- UPDATED BUTTON LOGIC ---
   Widget _buildBottomButton(bool isPastEvent) {
     if (_isRegistered) {
       return Column(
@@ -512,20 +515,25 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
           
           if (!isPastEvent) ...[
             const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _showMyTicket,
-                icon: const Icon(Icons.qr_code, size: 20),
-                label: const Text("View Ticket"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black87,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            
+            // --- FIX IS HERE: ONLY SHOW BUTTON IF METHOD IS ORGANIZER_SCAN ---
+            if (widget.event.checkInMethod == 'organizer_scan')
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _showMyTicket,
+                  icon: const Icon(Icons.qr_code, size: 20),
+                  label: const Text("View Ticket"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black87,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
                 ),
-              ),
-            ),
+              )
+            // If checkInMethod is 'self_scan', we do NOT show any button here
+            // because there is already a global scanner button on the home page.
           ],
         ],
       );
@@ -591,6 +599,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ... (Header Row remains the same) ...
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -611,6 +620,7 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
                    ),
                 ],
               ),
+              // ... (PopupMenuButton remains the same) ...
               PopupMenuButton(
                 icon: const Icon(Icons.more_horiz, color: Colors.grey),
                 onSelected: (value) {
@@ -634,6 +644,8 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
           const SizedBox(height: 8),
           Text(review.comment),
           if (review.isEdited) const Text("(edited)", style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic)),
+          
+          // --- UPDATED: DISPLAY PHOTOS WITH RESOLVER ---
           if (review.photoUrls.isNotEmpty) ...[
             const SizedBox(height: 8),
             SizedBox(
@@ -641,10 +653,38 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: review.photoUrls.length,
-                itemBuilder: (context, index) => Padding(padding: const EdgeInsets.only(right: 8.0), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(review.photoUrls[index], width: 80, height: 80, fit: BoxFit.cover, errorBuilder: (_,__,___) => Container(width: 80, height: 80, color: Colors.grey)))),
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: FutureBuilder<String?>(
+                      // Resolve URL first
+                      future: _storageService.resolveImageUrl(review.photoUrls[index]),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return Container(width: 80, height: 80, color: Colors.grey[200]); 
+                        }
+                        return GestureDetector(
+                          onTap: () => _showFullImage(context, snapshot.data!),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              snapshot.data!, 
+                              width: 80, 
+                              height: 80, 
+                              fit: BoxFit.cover, 
+                              errorBuilder: (_,__,___) => Container(width: 80, height: 80, color: Colors.grey)
+                            ),
+                          ),
+                        );
+                      }
+                    ),
+                  );
+                },
               ),
             ),
           ],
+          // ---------------------------------------------
+
           const SizedBox(height: 12),
           Row(
             children: [
@@ -668,7 +708,37 @@ class _ParticipantEventDetailScreenState extends State<ParticipantEventDetailScr
     );
   }
 
-  // --- UPDATED: Banner Loader (Correctly resolves Google Drive links) ---
+  // Helper method for full screen image (Add this to the state class)
+  void _showFullImage(BuildContext context, String imageUrl) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: EdgeInsets.zero,
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            SizedBox(
+              width: double.infinity,
+              height: double.infinity,
+              child: InteractiveViewer(
+                child: Image.network(imageUrl, fit: BoxFit.contain),
+              ),
+            ),
+            Positioned(
+              top: 40,
+              right: 20,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildEventImage(String? imageUrl) {
     if (imageUrl == null || imageUrl.isEmpty) {
       return Container(

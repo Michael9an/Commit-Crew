@@ -75,7 +75,7 @@ class RegistrationService {
           .collection('registers')
           .where('eventId', isEqualTo: eventId)
           .where('email', isEqualTo: email.trim().toLowerCase())
-          .where('status', whereIn: ['registered', 'pending'])
+          .where('status', whereIn: ['registered', 'pending', 'attended'])
           .limit(1)
           .get();
 
@@ -157,7 +157,7 @@ class RegistrationService {
         }
 
         final data = registerDoc.data()! as Map<String, dynamic>;
-        final register = Register.fromFirestore(data);
+        final register = Register.fromFirestore(data, documentId: registerDoc.id);
 
         // 2. Update registration with payment details
         final updatedRegister = register.copyWith(
@@ -187,7 +187,7 @@ class RegistrationService {
       final doc = await _firestore.collection('registers').doc(registerId).get();
       if (doc.exists) {
         final data = doc.data()! as Map<String, dynamic>;
-        return Register.fromFirestore(data);
+        return Register.fromFirestore(data, documentId: doc.id);
       }
       return null;
     } catch (e) {
@@ -207,7 +207,7 @@ class RegistrationService {
 
       return snapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
-        return Register.fromFirestore(data);
+        return Register.fromFirestore(data, documentId: doc.id);
       }).toList();
     } catch (e) {
       print('Error getting event registrations: $e');
@@ -223,7 +223,7 @@ class RegistrationService {
       if (userId != null && userId.isNotEmpty) {
         query = query.where('userId', isEqualTo: userId);
       } else if (email != null && email.isNotEmpty) {
-        query = query.where('email', isEqualTo: email);
+        query = query.where('email', isEqualTo: email.trim().toLowerCase());
       } else {
         final currentUser = FirebaseAuth.instance.currentUser;
         if (currentUser == null) return [];
@@ -231,19 +231,23 @@ class RegistrationService {
         if (currentUser.uid.isNotEmpty) {
           query = query.where('userId', isEqualTo: currentUser.uid);
         } else if (currentUser.email != null) {
-          query = query.where('email', isEqualTo: currentUser.email);
+          query = query.where('email', isEqualTo: currentUser.email!.trim().toLowerCase());
         } else {
           return [];
         }
       }
 
-      query = query.orderBy('registrationDate', descending: true);
-
+      // Don't use orderBy here to avoid requiring a composite index
+      // We'll sort in memory instead
       final snapshot = await query.get();
-      return snapshot.docs.map((doc) {
+      final registrations = snapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
-        return Register.fromFirestore(data);
+        return Register.fromFirestore(data, documentId: doc.id);
       }).toList();
+      
+      // Sort by registration date descending (most recent first)
+      registrations.sort((a, b) => b.registrationDate.compareTo(a.registrationDate));
+      return registrations;
     } catch (e) {
       print('Error getting user registrations: $e');
       return [];
@@ -263,7 +267,7 @@ class RegistrationService {
         }
 
         final data = registerDoc.data()! as Map<String, dynamic>;
-        final register = Register.fromFirestore(data);
+        final register = Register.fromFirestore(data, documentId: registerDoc.id);
 
         // 2. Check if cancellation is allowed
         if (register.isCancelled) {
@@ -342,7 +346,7 @@ class RegistrationService {
       if (userId != null && userId.isNotEmpty) {
         query = query.where('userId', isEqualTo: userId);
       } else if (email != null && email.isNotEmpty) {
-        query = query.where('email', isEqualTo: email);
+        query = query.where('email', isEqualTo: email.trim().toLowerCase());
       } else {
         final currentUser = FirebaseAuth.instance.currentUser;
         if (currentUser == null) return false;
@@ -350,7 +354,7 @@ class RegistrationService {
         if (currentUser.uid.isNotEmpty) {
           query = query.where('userId', isEqualTo: currentUser.uid);
         } else if (currentUser.email != null) {
-          query = query.where('email', isEqualTo: currentUser.email);
+          query = query.where('email', isEqualTo: currentUser.email!.trim().toLowerCase());
         } else {
           return false;
         }
@@ -410,7 +414,7 @@ class RegistrationService {
         .map((snapshot) =>
             snapshot.docs.map((doc) {
               final data = doc.data() as Map<String, dynamic>;
-              return Register.fromFirestore(data);
+              return Register.fromFirestore(data, documentId: doc.id);
             }).toList());
   }
 
@@ -419,16 +423,20 @@ class RegistrationService {
     return _firestore
         .collection('registers')
         .where('userId', isEqualTo: userId)
-        .orderBy('registrationDate', descending: true)
+        // Don't use orderBy here to avoid requiring a composite index
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) {
-              final data = doc.data() as Map<String, dynamic>;
-              return Register.fromFirestore(data);
-            }).toList());
+        .map((snapshot) {
+          final registrations = snapshot.docs.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return Register.fromFirestore(data, documentId: doc.id);
+          }).toList();
+          // Sort by registration date descending (most recent first)
+          registrations.sort((a, b) => b.registrationDate.compareTo(a.registrationDate));
+          return registrations;
+        });
   }
 
-  // Add this to registration_service.dart for testing
+  // for testing
   Future<void> testRegistrationConnection() async {
     try {
       print('Testing Firestore connection...');
@@ -451,6 +459,41 @@ class RegistrationService {
     } catch (e) {
       print('✗ Firestore connection error: $e');
       rethrow;
+    }
+  }
+
+  // debug method:
+  Future<void> debugUserRegistrations(String userId, String email) async {
+    try {
+      print('=== DEBUG USER REGISTRATIONS ===');
+      print('User ID: $userId');
+      print('User Email: $email');
+      
+      // Check by userId
+      final userIdQuery = await _firestore
+          .collection('registers')
+          .where('userId', isEqualTo: userId)
+          .get();
+      
+      print('Query by userId found: ${userIdQuery.docs.length}');
+      for (var doc in userIdQuery.docs) {
+        print('  - ${doc.id}: ${doc.data()}');
+      }
+      
+      // Check by email
+      final emailQuery = await _firestore
+          .collection('registers')
+          .where('email', isEqualTo: email)
+          .get();
+      
+      print('Query by email found: ${emailQuery.docs.length}');
+      for (var doc in emailQuery.docs) {
+        print('  - ${doc.id}: ${doc.data()}');
+      }
+      
+      print('=== DEBUG COMPLETE ===');
+    } catch (e) {
+      print('Debug error: $e');
     }
   }
 }

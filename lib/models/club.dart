@@ -200,7 +200,10 @@ class Club {
   bool get isVerificationSubmitted => verificationStatus == 'submitted' || (approvalLetterUrl != null && approvalLetterUrl!.isNotEmpty);
 
   // Check if club can create events
-  bool get canCreateEvents => isApproved && isActive;
+  bool get canCreateEvents => isApproved && isActive && !isRestricted;
+
+  // Check if club is restricted
+  bool get isRestricted => status == 'restricted';
   
   // Check if user is a member
   bool isMember(String userId) => memberIds.contains(userId);
@@ -300,6 +303,8 @@ class Club {
         return {'text': 'Pending Approval', 'color': 'orange'};
       case 'rejected':
         return {'text': 'Rejected', 'color': 'red'};
+      case 'restricted':
+        return {'text': 'Restricted', 'color': 'red'};
       default:
         return {'text': 'Unknown', 'color': 'gray'};
     }
