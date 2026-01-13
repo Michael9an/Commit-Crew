@@ -95,26 +95,30 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day); 
 
+    // 1. BASE FILTER: Only show 'published' events. 
+    // This removes 'archived', 'draft', or 'cancelled' events from the list immediately.
+    final visibleEvents = _events.where((e) => e.status == 'published').toList();
+
     List<EventModel> tabEvents;
     
     if (_tabController.index == 0) { // Upcoming
-      tabEvents = _events.where((e) {
-         if (e.date == null) return false;
+      tabEvents = visibleEvents.where((e) { // Changed _events to visibleEvents
+         if (e.date.isEmpty) return false;
          try {
-           final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date!));
+           final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date));
            return !eDate.isBefore(today); 
          } catch (e) { return false; }
       }).toList();
-      tabEvents.sort((a, b) => (int.tryParse(a.date ?? '0') ?? 0).compareTo(int.tryParse(b.date ?? '0') ?? 0));
+      tabEvents.sort((a, b) => (int.tryParse(a.date) ?? 0).compareTo(int.tryParse(b.date) ?? 0));
     } else { // Past
-      tabEvents = _events.where((e) {
-         if (e.date == null) return false;
+      tabEvents = visibleEvents.where((e) { // Changed _events to visibleEvents
+         if (e.date.isEmpty) return false;
          try {
-           final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date!));
+           final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date));
            return eDate.isBefore(today);
          } catch (e) { return false; }
       }).toList();
-      tabEvents.sort((a, b) => (int.tryParse(b.date ?? '0') ?? 0).compareTo(int.tryParse(a.date ?? '0') ?? 0));
+      tabEvents.sort((a, b) => (int.tryParse(b.date) ?? 0).compareTo(int.tryParse(a.date) ?? 0));
     }
 
     return tabEvents.where((e) {
@@ -123,7 +127,7 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
       }
       if (_tabController.index == 0 && _selectedTimeFilter != 'All') {
         try {
-          final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date!));
+          final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date));
           final diff = eDate.difference(now).inDays;
 
           if (_selectedTimeFilter == 'Next 7 Days' && diff > 7) return false;

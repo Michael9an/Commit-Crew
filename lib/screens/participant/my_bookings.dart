@@ -13,7 +13,7 @@ import '../../models/register.dart';
 // --- SERVICES ---
 import '../../services/registration_service.dart';
 import '../../services/auth_service.dart';
-import '../../services/storage_service.dart'; // Added for images
+import '../../services/storage_service.dart'; 
 import '../../screens/participant/event_detail_screen.dart';
 
 class MyBookingsScreen extends StatefulWidget {
@@ -55,7 +55,6 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
       final registrations = await _registrationService.getUserRegistrations(userId: user.id, email: user.email);
       
-      // Fetch events
       final List<EventModel> events = [];
       final Map<String, EventModel> eventMap = {};
 
@@ -88,17 +87,40 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     } catch (e) { return null; }
   }
 
+  // --- LOGIC: DETERMINE REAL STATUS ---
+  String _getRealStatus(Register reg) {
+    if (reg.status.toLowerCase() == 'cancelled') return 'Cancelled';
+    if (reg.status.toLowerCase() == 'attended') return 'Attended';
+    
+    final event = _eventMap[reg.eventId];
+    // Fallback if event not loaded yet
+    if (event == null) return reg.status; 
+
+    // If still 'registered' in DB, check date
+    if (reg.status.toLowerCase() == 'registered') {
+      if (event.isPast) {
+        return 'Absent'; // <--- Auto-move to Absent if past
+      } else {
+        return 'Upcoming'; // <--- Explicitly mark as Upcoming
+      }
+    }
+    
+    return reg.status;
+  }
+
   List<Register> _getFilteredRegistrations() {
     if (_currentFilter == 'All') return _myRegistrations;
-    return _myRegistrations.where((r) => r.displayStatus.toLowerCase() == _currentFilter.toLowerCase()).toList();
+    
+    return _myRegistrations.where((r) {
+      final realStatus = _getRealStatus(r);
+      return realStatus.toLowerCase() == _currentFilter.toLowerCase();
+    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    final filteredRegistrations = _getFilteredRegistrations();
-    
     return Scaffold(
-      backgroundColor: Colors.grey[50], // Lighter background
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('Registered Events', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
@@ -119,33 +141,110 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                   ? _buildEmptyState()
                   : RefreshIndicator(
                       onRefresh: _loadMyRegistrations,
-                      child: ListView(
-                        padding: const EdgeInsets.all(16),
-                        children: [
-                          _buildStatsOverview(),
-                          const SizedBox(height: 20),
-                          _buildFilterSection(),
-                          const SizedBox(height: 16),
-                          ...filteredRegistrations.map((reg) => _buildModernBookingCard(reg)).toList(),
-                          const SizedBox(height: 40),
-                        ],
-                      ),
+                      child: _currentFilter == 'All' 
+                          ? _buildGroupedView() // <--- NEW GROUPED VIEW
+                          : _buildStandardListView(),
                     ),
     );
   }
 
-  Widget _buildStatsOverview() {
-    int total = _myRegistrations.length;
-    int upcoming = _myRegistrations.where((r) => r.status == 'registered').length;
-    int attended = _myRegistrations.where((r) => r.status == 'attended').length;
+  // --- NEW: GROUPED VIEW FOR 'ALL' FILTER ---
+  Widget _buildGroupedView() {
+    // 1. Bucketing
+    List<Register> upcoming = [];
+    List<Register> attended = [];
+    List<Register> absent = [];
+    List<Register> cancelled = [];
 
+    for (var reg in _myRegistrations) {
+      String status = _getRealStatus(reg);
+      if (status == 'Upcoming') upcoming.add(reg);
+      else if (status == 'Attended') attended.add(reg);
+      else if (status == 'Absent') absent.add(reg);
+      else if (status == 'Cancelled') cancelled.add(reg);
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildStatsOverview(upcoming.length, attended.length, absent.length),
+        const SizedBox(height: 20),
+        _buildFilterSection(),
+        const SizedBox(height: 16),
+
+        if (upcoming.isNotEmpty) ...[
+          _buildSectionHeader("Upcoming Events", Colors.orange),
+          ...upcoming.map((reg) => _buildModernBookingCard(reg)).toList(),
+          const SizedBox(height: 20),
+        ],
+
+        if (attended.isNotEmpty) ...[
+          _buildSectionHeader("Attended History", Colors.green),
+          ...attended.map((reg) => _buildModernBookingCard(reg)).toList(),
+          const SizedBox(height: 20),
+        ],
+
+        if (absent.isNotEmpty) ...[
+          _buildSectionHeader("Absent", Colors.grey),
+          ...absent.map((reg) => _buildModernBookingCard(reg)).toList(),
+          const SizedBox(height: 20),
+        ],
+
+        if (cancelled.isNotEmpty) ...[
+          _buildSectionHeader("Cancelled", Colors.red),
+          ...cancelled.map((reg) => _buildModernBookingCard(reg)).toList(),
+        ],
+        
+        const SizedBox(height: 40),
+      ],
+    );
+  }
+
+  Widget _buildStandardListView() {
+    final filtered = _getFilteredRegistrations();
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildStatsOverview(
+          _myRegistrations.where((r) => _getRealStatus(r) == 'Upcoming').length,
+          _myRegistrations.where((r) => _getRealStatus(r) == 'Attended').length,
+          _myRegistrations.where((r) => _getRealStatus(r) == 'Absent').length,
+        ),
+        const SizedBox(height: 20),
+        _buildFilterSection(),
+        const SizedBox(height: 16),
+        if (filtered.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 40),
+            child: Center(child: Text("No events found in this category", style: TextStyle(color: Colors.grey))),
+          )
+        else
+          ...filtered.map((reg) => _buildModernBookingCard(reg)).toList(),
+      ],
+    );
+  }
+
+  Widget _buildSectionHeader(String title, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12, left: 4),
+      child: Row(
+        children: [
+          Container(width: 4, height: 16, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
+          const SizedBox(width: 8),
+          Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[800])),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatsOverview(int upcoming, int attended, int absent) {
     return Row(
       children: [
-        _buildStatCard('Total', total.toString(), Colors.blue),
-        const SizedBox(width: 12),
         _buildStatCard('Upcoming', upcoming.toString(), Colors.orange),
         const SizedBox(width: 12),
         _buildStatCard('Attended', attended.toString(), Colors.green),
+        const SizedBox(width: 12),
+        _buildStatCard('Absent', absent.toString(), Colors.grey),
       ],
     );
   }
@@ -178,9 +277,11 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         children: [
           _buildFilterChip('All'),
           const SizedBox(width: 8),
-          _buildFilterChip('Registered'),
+          _buildFilterChip('Upcoming'),
           const SizedBox(width: 8),
           _buildFilterChip('Attended'),
+          const SizedBox(width: 8),
+          _buildFilterChip('Absent'), // Added
           const SizedBox(width: 8),
           _buildFilterChip('Cancelled'),
         ],
@@ -208,8 +309,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   Widget _buildModernBookingCard(Register registration) {
     final event = _eventMap[registration.eventId];
-    final statusColor = _getStatusColor(registration.status);
-    final statusText = registration.displayStatus.toUpperCase();
+    
+    // Use Real Status Logic
+    final String realStatusText = _getRealStatus(registration);
+    final Color statusColor = _getStatusColor(realStatusText);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -252,7 +355,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          statusText,
+                          realStatusText.toUpperCase(),
                           style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold),
                         ),
                       ),
@@ -296,12 +399,9 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     if (imageUrl == null || imageUrl.isEmpty) {
       return Container(color: Colors.grey[100], child: const Icon(Icons.event, color: Colors.grey));
     }
-    
-    // Check if local file
     if (imageUrl.startsWith('/')) {
       return Image.file(File(imageUrl), fit: BoxFit.cover);
     }
-
     return FutureBuilder<String?>(
       future: _storageService.resolveImageUrl(imageUrl),
       builder: (context, snap) {
@@ -350,8 +450,9 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
-      case 'registered': return Colors.orange;
+      case 'upcoming': return Colors.orange; // 'Registered' effectively
       case 'attended': return Colors.green;
+      case 'absent': return Colors.grey;
       case 'cancelled': return Colors.red;
       default: return Colors.grey;
     }
