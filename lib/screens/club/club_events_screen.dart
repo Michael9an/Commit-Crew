@@ -19,6 +19,7 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
   final FirestoreService _firestoreService = FirestoreService();
   String _selectedFilter = 'All';
 
+  // --- FILTER LOGIC (Unchanged basic filtering) ---
   List<EventModel> _filterEvents(List<EventModel> events) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -34,11 +35,11 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
         return false; // Hide archived events from other tabs
       }
 
-      if (event.date == null) return false;
+      if (event.date.isEmpty) return false;
       
       DateTime? eventDate;
       try {
-        final millis = int.tryParse(event.date!);
+        final millis = int.tryParse(event.date);
         if (millis != null) {
           eventDate = DateTime.fromMillisecondsSinceEpoch(millis);
         }
@@ -50,12 +51,12 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
 
       switch (_selectedFilter) {
         case '7 Days':
-          final end = today.add(Duration(days: 7));
-          return eventDate.isAfter(today.subtract(Duration(seconds: 1))) && 
+          final end = today.add(const Duration(days: 7));
+          return eventDate.isAfter(today.subtract(const Duration(seconds: 1))) && 
                  eventDate.isBefore(end);
         case '15 Days':
-          final end = today.add(Duration(days: 15));
-          return eventDate.isAfter(today.subtract(Duration(seconds: 1))) && 
+          final end = today.add(const Duration(days: 15));
+          return eventDate.isAfter(today.subtract(const Duration(seconds: 1))) && 
                  eventDate.isBefore(end);
         case 'Past':
           return eventDate.isBefore(today);
@@ -75,24 +76,24 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
           // 1. Full-Width Filter Bar
           Container(
             width: double.infinity,
-            padding: EdgeInsets.symmetric(vertical: 12),
+            padding: const EdgeInsets.symmetric(vertical: 12),
             decoration: BoxDecoration(
-              color: Colors.white, // FIX: Color is now INSIDE decoration
+              color: Colors.white, 
               border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
             ),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
                   _buildFilterChip('All'),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   _buildFilterChip('7 Days'),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   _buildFilterChip('15 Days'),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   _buildFilterChip('Past'),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   _buildFilterChip('Archived'),
                 ],
               ),
@@ -105,18 +106,26 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
               stream: _firestoreService.getEventsByClub(widget.club.id),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Center(child: CircularProgressIndicator());
+                  return const Center(child: CircularProgressIndicator());
                 }
 
                 final allEvents = snapshot.data ?? [];
+                
+                // Get the filtered list based on the selected chip
                 final displayEvents = _filterEvents(allEvents);
 
                 if (displayEvents.isEmpty) {
                   return _buildEmptyState();
                 }
 
+                // --- NEW LOGIC: GROUP VIEW FOR 'ALL' FILTER ---
+                if (_selectedFilter == 'All') {
+                  return _buildGroupedList(displayEvents);
+                }
+
+                // Standard flat list for other filters
                 return ListView.builder(
-                  padding: EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
                   itemCount: displayEvents.length,
                   itemBuilder: (context, index) {
                     return _buildModernEventCard(displayEvents[index]);
@@ -125,6 +134,60 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
               },
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  // --- NEW: Grouped List Builder ---
+  Widget _buildGroupedList(List<EventModel> events) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    List<EventModel> upcoming = [];
+    List<EventModel> past = [];
+
+    for (var event in events) {
+      if (event.date.isEmpty) continue;
+      final millis = int.tryParse(event.date) ?? 0;
+      final date = DateTime.fromMillisecondsSinceEpoch(millis);
+
+      if (date.isBefore(today)) {
+        past.add(event);
+      } else {
+        upcoming.add(event);
+      }
+    }
+
+    // Sort: Upcoming (Ascending), Past (Descending)
+    upcoming.sort((a, b) => (int.tryParse(a.date) ?? 0).compareTo(int.tryParse(b.date) ?? 0));
+    past.sort((a, b) => (int.tryParse(b.date) ?? 0).compareTo(int.tryParse(a.date) ?? 0));
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (upcoming.isNotEmpty) ...[
+          _buildSectionHeader("Upcoming Events", Colors.orange),
+          ...upcoming.map((e) => _buildModernEventCard(e)).toList(),
+          const SizedBox(height: 24),
+        ],
+
+        if (past.isNotEmpty) ...[
+          _buildSectionHeader("Past Events", Colors.grey),
+          ...past.map((e) => _buildModernEventCard(e)).toList(),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSectionHeader(String title, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12, left: 4),
+      child: Row(
+        children: [
+          Container(width: 4, height: 16, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
+          const SizedBox(width: 8),
+          Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[800])),
         ],
       ),
     );
@@ -150,7 +213,7 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
         fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
         fontSize: 13,
       ),
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         side: BorderSide(
@@ -162,13 +225,13 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
 
   Widget _buildModernEventCard(EventModel event) {
     DateTime? date;
-    if (event.date != null) {
-      date = DateTime.fromMillisecondsSinceEpoch(int.tryParse(event.date!) ?? 0);
+    if (event.date.isNotEmpty) {
+      date = DateTime.fromMillisecondsSinceEpoch(int.tryParse(event.date) ?? 0);
     }
 
     return Card(
       elevation: 0,
-      margin: EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: Colors.grey[200]!),
@@ -200,7 +263,7 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
               // RIGHT: Info
               Expanded(
                 child: Padding(
-                  padding: EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -214,21 +277,21 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
                               event.name,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
                             ),
                           ),
-                          SizedBox(width: 8),
+                          const SizedBox(width: 8),
                           _buildStatusBadge(event.status),
                         ],
                       ),
                       
-                      SizedBox(height: 8),
+                      const SizedBox(height: 8),
 
                       // Middle Row
                       Row(
                         children: [
                           Icon(Icons.location_on, size: 14, color: Colors.grey[500]),
-                          SizedBox(width: 4),
+                          const SizedBox(width: 4),
                           Expanded(
                             child: Text(
                               event.location,
@@ -240,21 +303,21 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
                         ],
                       ),
                       
-                      SizedBox(height: 12),
+                      const SizedBox(height: 12),
 
                       // Bottom Row
                       Row(
                         children: [
                           Container(
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
                               color: Colors.blue[50],
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Row(
                               children: [
-                                Icon(Icons.people, size: 14, color: Colors.blue),
-                                SizedBox(width: 4),
+                                const Icon(Icons.people, size: 14, color: Colors.blue),
+                                const SizedBox(width: 4),
                                 Text(
                                   '${event.attendees.length}',
                                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue[800]),
@@ -262,7 +325,7 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
                               ],
                             ),
                           ),
-                          Spacer(),
+                          const Spacer(),
                           if (!event.isFree)
                             Text(
                               '\$${event.price.toStringAsFixed(0)}',
@@ -300,7 +363,7 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
               },
             );
           }
-          return _buildDateBox(date); // Fallback for local files if any
+          return _buildDateBox(date); 
         },
       );
     }
@@ -349,7 +412,7 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
     }
 
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(4),
@@ -368,7 +431,7 @@ class _ClubEventsScreenState extends State<ClubEventsScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.filter_list_off, size: 64, color: Colors.grey[300]),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text('No events found', style: TextStyle(fontSize: 16, color: Colors.grey[600])),
         ],
       ),
