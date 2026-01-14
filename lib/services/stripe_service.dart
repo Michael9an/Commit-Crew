@@ -1,5 +1,3 @@
-// Updated
-
 import 'dart:convert';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:http/http.dart' as http;
@@ -51,30 +49,6 @@ class StripeService {
       }
     } catch (error) {
       print('Error creating payment intent: $error');
-      rethrow;
-    }
-  }
-
-  Future<PaymentMethod> createPaymentMethod({
-    required String cardNumber,
-    required int expiryMonth,
-    required int expiryYear,
-    required String cvc,
-    String? cardHolderName,
-  }) async {
-    try {
-      final paymentMethod = await Stripe.instance.createPaymentMethod(
-        params: PaymentMethodParams.card(
-          paymentMethodData: PaymentMethodData(
-            billingDetails: BillingDetails(
-              name: cardHolderName,
-            ),
-          ),
-        ),
-      );
-      return paymentMethod;
-    } catch (e) {
-      print('Error creating payment method: $e');
       rethrow;
     }
   }
