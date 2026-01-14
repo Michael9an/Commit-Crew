@@ -90,52 +90,140 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
     await Future.wait([minWait, dataFuture]);
   }
 
-  // --- FILTER LOGIC ---
+  // --- UPDATED FILTER LOGIC ---
   List<EventModel> _getFilteredEvents() {
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day); 
-
-    // 1. BASE FILTER: Only show 'published' events. 
-    // This removes 'archived', 'draft', or 'cancelled' events from the list immediately.
+    // Create "Today" at 00:00:00 for strict date comparison
+    final today = DateTime(now.year, now.month, now.day);
+    
+    // Base Filter: Published only
     final visibleEvents = _events.where((e) => e.status == 'published').toList();
 
     List<EventModel> tabEvents;
-    
-    if (_tabController.index == 0) { // Upcoming
-      tabEvents = visibleEvents.where((e) { // Changed _events to visibleEvents
-         if (e.date.isEmpty) return false;
-         try {
-           final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date));
-           return !eDate.isBefore(today); 
-         } catch (e) { return false; }
+
+    if (_tabController.index == 0) { 
+      // ===========================================
+      // 1. UPCOMING TAB LOGIC
+      // ===========================================
+      tabEvents = visibleEvents.where((e) {
+        if (e.date.isEmpty) return false;
+        
+        // Parse Date (Strip time to compare just the Day)
+        final dateBase = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date));
+        final eventDate = DateTime(dateBase.year, dateBase.month, dateBase.day);
+
+        // A. If date is in the past (Yesterday or before) -> HIDE
+        if (eventDate.isBefore(today)) return false; 
+        
+        // B. If date is in the future (Tomorrow or later) -> SHOW
+        if (eventDate.isAfter(today)) return true;   
+
+        // C. If date is TODAY -> Check the Time
+        final endDateTime = _getEventEndTime(e);
+        return endDateTime.isAfter(now); 
       }).toList();
-      tabEvents.sort((a, b) => (int.tryParse(a.date) ?? 0).compareTo(int.tryParse(b.date) ?? 0));
-    } else { // Past
-      tabEvents = visibleEvents.where((e) { // Changed _events to visibleEvents
-         if (e.date.isEmpty) return false;
-         try {
-           final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date));
-           return eDate.isBefore(today);
-         } catch (e) { return false; }
+      
+      // Sort: Nearest events first (Ascending)
+      tabEvents.sort((a, b) => _getEventEndTime(a).compareTo(_getEventEndTime(b)));
+
+    } else { 
+      // ===========================================
+      // 2. PAST TAB LOGIC
+      // ===========================================
+      tabEvents = visibleEvents.where((e) {
+        if (e.date.isEmpty) return true; // Assume past if broken
+        
+        final dateBase = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date));
+        final eventDate = DateTime(dateBase.year, dateBase.month, dateBase.day);
+
+        // A. If date is in the past (Yesterday or before) -> SHOW
+        if (eventDate.isBefore(today)) return true; 
+        
+        // B. If date is in the future (Tomorrow or later) -> HIDE
+        if (eventDate.isAfter(today)) return false;  
+
+        // C. If date is TODAY -> Check if Time has passed
+        final endDateTime = _getEventEndTime(e);
+        return endDateTime.isBefore(now);
       }).toList();
-      tabEvents.sort((a, b) => (int.tryParse(b.date) ?? 0).compareTo(int.tryParse(a.date) ?? 0));
+
+      // Sort: Most recent past events first (Descending)
+      tabEvents.sort((a, b) => _getEventEndTime(b).compareTo(_getEventEndTime(a)));
     }
 
+    // ===========================================
+    // 3. APPLY CATEGORY & TIME FILTERS
+    // ===========================================
     return tabEvents.where((e) {
-      if (_selectedCategory != 'All' && e.category != _selectedCategory) {
-        return false;
-      }
+      // Category Filter
+      if (_selectedCategory != 'All' && e.category != _selectedCategory) return false;
+      
+      // Time Range Filter (Only applies to Upcoming tab)
       if (_tabController.index == 0 && _selectedTimeFilter != 'All') {
-        try {
-          final eDate = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date));
-          final diff = eDate.difference(now).inDays;
-
-          if (_selectedTimeFilter == 'Next 7 Days' && diff > 7) return false;
-          if (_selectedTimeFilter == 'Next 15 Days' && diff > 15) return false;
-        } catch (e) { return false; }
+        final endDateTime = _getEventEndTime(e);
+        final diff = endDateTime.difference(now).inDays;
+        
+        if (_selectedTimeFilter == 'Next 7 Days' && diff > 7) return false;
+        if (_selectedTimeFilter == 'Next 15 Days' && diff > 15) return false;
       }
       return true;
     }).toList();
+  }
+
+  // --- HELPER: Get Exact End Time ---
+  DateTime _getEventEndTime(EventModel event) {
+    if (event.date.isEmpty) return DateTime.now();
+
+    // 1. Parse Date
+    DateTime dateBase = DateTime.fromMillisecondsSinceEpoch(int.parse(event.date));
+    
+    // 2. Parse Time (Prefer EndTime, fallback to StartTime)
+    String timeStr = event.endTime.isNotEmpty ? event.endTime : event.startTime;
+    TimeOfDay time = _parseTimeString(timeStr);
+
+    return DateTime(dateBase.year, dateBase.month, dateBase.day, time.hour, time.minute);
+  }
+
+  // --- HELPER: Robust Time Parser ---
+  TimeOfDay _parseTimeString(String timeStr) {
+    // Default to 00:00 (Start of Day) to ensure broken times fall into "Past"
+    const defaultTime = TimeOfDay(hour: 0, minute: 0); 
+
+    if (timeStr.isEmpty || timeStr == 'Time not set') return defaultTime;
+
+    try {
+      // Handle "9.00 pm", "9:00 pm", "9pm"
+      String cleanStr = timeStr.toLowerCase().trim()
+          .replaceAll(' ', '')
+          .replaceAll('.', ':'); 
+
+      if (cleanStr.contains('-')) cleanStr = cleanStr.split('-').last;
+
+      if (cleanStr.contains('am') || cleanStr.contains('pm')) {
+        bool isPm = cleanStr.contains('pm');
+        cleanStr = cleanStr.replaceAll('am', '').replaceAll('pm', '');
+        
+        int hour = 0;
+        int minute = 0;
+        if (cleanStr.contains(':')) {
+          final parts = cleanStr.split(':');
+          hour = int.parse(parts[0]);
+          minute = parts.length > 1 ? int.parse(parts[1]) : 0;
+        } else {
+          hour = int.parse(cleanStr);
+        }
+        if (isPm && hour < 12) hour += 12; 
+        if (!isPm && hour == 12) hour = 0; 
+        return TimeOfDay(hour: hour, minute: minute);
+      } 
+      else if (cleanStr.contains(':')) {
+        final parts = cleanStr.split(':');
+        return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+      }
+      return defaultTime;
+    } catch (e) {
+      return defaultTime;
+    }
   }
 
   @override
@@ -144,7 +232,7 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      // Standard AppBar (No Sliver/NestedScrollView issues)
+      // Standard AppBar
       appBar: AppBar(
         title: const Text('Discover Events'),
         backgroundColor: Colors.white,
@@ -178,7 +266,6 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
 
       // --- REFRESH INDICATOR ---
-      // Wraps the simple ListView. This is the most stable configuration.
       body: _isLoading 
         ? const Center(child: CircularProgressIndicator()) 
         : RefreshIndicator(
@@ -188,7 +275,7 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
             child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.all(16),
-              physics: const AlwaysScrollableScrollPhysics(), // Ensures bounce works
+              physics: const AlwaysScrollableScrollPhysics(),
               // Add 2 to count: Index 0 is FilterBar, Last index is Bottom Spacer
               itemCount: displayEvents.length + 2, 
               itemBuilder: (context, index) {
@@ -233,7 +320,6 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
 
                 // --- 3. EVENT CARDS ---
                 if (displayEvents.isEmpty) {
-                   // Fallback if list is empty but we are in the builder loop
                    return _buildEmptyState();
                 }
 
@@ -300,15 +386,8 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
   }
 
   Widget _buildEventCard(EventModel event, BuildContext context) {
-     bool isEnded = false;
-    if (event.date != null) {
-      try {
-        final d = DateTime.fromMillisecondsSinceEpoch(int.parse(event.date!));
-        if (d.isBefore(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day))) {
-          isEnded = true;
-        }
-      } catch (e) {}
-    }
+    // Correctly calculate if event has ended using helper
+    final isEnded = DateTime.now().isAfter(_getEventEndTime(event));
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
