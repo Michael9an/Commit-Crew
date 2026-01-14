@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:firebase_auth/firebase_auth.dart'; 
 import 'dart:io';
 import '../../services/storage_service.dart';
+import '../../services/registration_service.dart'; 
 import '../../models/event.dart';
 import '../../services/firestore_service.dart';
 import 'event_detail_screen.dart';
@@ -17,10 +19,12 @@ class EventDiscoveryScreen extends StatefulWidget {
 class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with SingleTickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
   final FirestoreService _firestoreService = FirestoreService();
+  final RegistrationService _registrationService = RegistrationService(); 
   
   // --- STATE MANAGEMENT ---
   List<EventModel> _events = [];
-  bool _isLoading = true; // Only true on FIRST load
+  Set<String> _registeredEventIds = {}; 
+  bool _isLoading = true; 
   bool _isFabExtended = true;
 
   // --- FILTER STATE ---
@@ -39,7 +43,7 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
     _tabController = TabController(length: 2, vsync: this);
     
     // Initial Load
-    _loadEvents(isInitialLoad: true);
+    _loadData(isInitialLoad: true);
 
     // FAB scroll listener
     _scrollController.addListener(() {
@@ -58,107 +62,107 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
     super.dispose();
   }
 
-  // --- DATA LOADING LOGIC (NO FLASHING) ---
-  Future<void> _loadEvents({bool isInitialLoad = false}) async {
+  // --- DATA LOADING LOGIC (Events + Registrations) ---
+  Future<void> _loadData({bool isInitialLoad = false}) async {
     if (isInitialLoad) {
       setState(() => _isLoading = true);
     }
 
     try {
-      // Fetch 1 snapshot of data (No StreamBuilder = No Flashing)
-      final newEvents = await _firestoreService.getEvents().first;
+      final user = FirebaseAuth.instance.currentUser;
+
+      // 1. Fetch Events
+      final eventsFuture = _firestoreService.getEvents().first;
       
+      // 2. Fetch User's Registrations (if logged in)
+      Future<List<String>> registrationsFuture;
+      if (user != null) {
+        registrationsFuture = _registrationService
+            .getUserRegistrations(userId: user.uid)
+            .then((list) => list.map((r) => r.eventId).toList());
+      } else {
+        registrationsFuture = Future.value([]);
+      }
+
+      // Wait for both to complete
+      final results = await Future.wait([eventsFuture, registrationsFuture]);
+      
+      final newEvents = results[0] as List<EventModel>;
+      final myEventIds = results[1] as List<String>;
+
       if (mounted) {
         setState(() {
           _events = newEvents;
+          _registeredEventIds = myEventIds.toSet(); // Cache registered IDs
           _isLoading = false; 
         });
       }
     } catch (e) {
-      print("Error loading events: $e");
+      print("Error loading data: $e");
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   // --- REFRESH HANDLER ---
   Future<void> _handleRefresh() async {
-    // 1. Force the spinner to be visible for a moment (Premium Feel)
     final minWait = Future.delayed(const Duration(milliseconds: 1000));
-    // 2. Load data in background (Old list stays visible)
-    final dataFuture = _loadEvents(isInitialLoad: false);
-    // 3. Wait for both
+    final dataFuture = _loadData(isInitialLoad: false);
     await Future.wait([minWait, dataFuture]);
   }
 
-  // --- UPDATED FILTER LOGIC ---
+  // --- FILTER LOGIC ---
   List<EventModel> _getFilteredEvents() {
     final now = DateTime.now();
-    // Create "Today" at 00:00:00 for strict date comparison
     final today = DateTime(now.year, now.month, now.day);
     
-    // Base Filter: Published only
-    final visibleEvents = _events.where((e) => e.status == 'published').toList();
+    // Base Filter: Published ONLY AND Exclude registered events
+    final visibleEvents = _events.where((e) {
+      if (e.status != 'published') return false;
+      if (_registeredEventIds.contains(e.id)) return false; // <--- HIDE REGISTERED EVENTS
+      return true;
+    }).toList();
 
     List<EventModel> tabEvents;
 
     if (_tabController.index == 0) { 
-      // ===========================================
-      // 1. UPCOMING TAB LOGIC
-      // ===========================================
+      // --- UPCOMING TAB ---
       tabEvents = visibleEvents.where((e) {
         if (e.date.isEmpty) return false;
         
-        // Parse Date (Strip time to compare just the Day)
         final dateBase = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date));
         final eventDate = DateTime(dateBase.year, dateBase.month, dateBase.day);
 
-        // A. If date is in the past (Yesterday or before) -> HIDE
         if (eventDate.isBefore(today)) return false; 
-        
-        // B. If date is in the future (Tomorrow or later) -> SHOW
         if (eventDate.isAfter(today)) return true;   
 
-        // C. If date is TODAY -> Check the Time
         final endDateTime = _getEventEndTime(e);
         return endDateTime.isAfter(now); 
       }).toList();
       
-      // Sort: Nearest events first (Ascending)
       tabEvents.sort((a, b) => _getEventEndTime(a).compareTo(_getEventEndTime(b)));
 
     } else { 
-      // ===========================================
-      // 2. PAST TAB LOGIC
-      // ===========================================
+      // --- PAST TAB ---
       tabEvents = visibleEvents.where((e) {
-        if (e.date.isEmpty) return true; // Assume past if broken
+        if (e.date.isEmpty) return true;
         
         final dateBase = DateTime.fromMillisecondsSinceEpoch(int.parse(e.date));
         final eventDate = DateTime(dateBase.year, dateBase.month, dateBase.day);
 
-        // A. If date is in the past (Yesterday or before) -> SHOW
         if (eventDate.isBefore(today)) return true; 
-        
-        // B. If date is in the future (Tomorrow or later) -> HIDE
         if (eventDate.isAfter(today)) return false;  
 
-        // C. If date is TODAY -> Check if Time has passed
         final endDateTime = _getEventEndTime(e);
         return endDateTime.isBefore(now);
       }).toList();
 
-      // Sort: Most recent past events first (Descending)
       tabEvents.sort((a, b) => _getEventEndTime(b).compareTo(_getEventEndTime(a)));
     }
 
-    // ===========================================
-    // 3. APPLY CATEGORY & TIME FILTERS
-    // ===========================================
+    // Apply Category & Time Filters
     return tabEvents.where((e) {
-      // Category Filter
       if (_selectedCategory != 'All' && e.category != _selectedCategory) return false;
       
-      // Time Range Filter (Only applies to Upcoming tab)
       if (_tabController.index == 0 && _selectedTimeFilter != 'All') {
         final endDateTime = _getEventEndTime(e);
         final diff = endDateTime.difference(now).inDays;
@@ -174,10 +178,7 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
   DateTime _getEventEndTime(EventModel event) {
     if (event.date.isEmpty) return DateTime.now();
 
-    // 1. Parse Date
     DateTime dateBase = DateTime.fromMillisecondsSinceEpoch(int.parse(event.date));
-    
-    // 2. Parse Time (Prefer EndTime, fallback to StartTime)
     String timeStr = event.endTime.isNotEmpty ? event.endTime : event.startTime;
     TimeOfDay time = _parseTimeString(timeStr);
 
@@ -186,13 +187,11 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
 
   // --- HELPER: Robust Time Parser ---
   TimeOfDay _parseTimeString(String timeStr) {
-    // Default to 00:00 (Start of Day) to ensure broken times fall into "Past"
     const defaultTime = TimeOfDay(hour: 0, minute: 0); 
 
     if (timeStr.isEmpty || timeStr == 'Time not set') return defaultTime;
 
     try {
-      // Handle "9.00 pm", "9:00 pm", "9pm"
       String cleanStr = timeStr.toLowerCase().trim()
           .replaceAll(' ', '')
           .replaceAll('.', ':'); 
@@ -232,7 +231,6 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      // Standard AppBar
       appBar: AppBar(
         title: const Text('Discover Events'),
         backgroundColor: Colors.white,
@@ -265,7 +263,6 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
             ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
 
-      // --- REFRESH INDICATOR ---
       body: _isLoading 
         ? const Center(child: CircularProgressIndicator()) 
         : RefreshIndicator(
@@ -276,11 +273,11 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
               controller: _scrollController,
               padding: const EdgeInsets.all(16),
               physics: const AlwaysScrollableScrollPhysics(),
-              // Add 2 to count: Index 0 is FilterBar, Last index is Bottom Spacer
-              itemCount: displayEvents.length + 2, 
+              // FIXED: Ensure itemCount is at least 2 to show Filter + EmptyState
+              itemCount: displayEvents.isEmpty ? 2 : displayEvents.length + 2, 
               itemBuilder: (context, index) {
                 
-                // --- 1. FILTER BAR (Index 0) ---
+                // 1. FILTER BAR (Index 0)
                 if (index == 0) {
                   return Container(
                     margin: const EdgeInsets.only(bottom: 16),
@@ -313,16 +310,17 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
                   );
                 }
 
-                // --- 2. BOTTOM SPACER (Last Index) ---
-                if (index == displayEvents.length + 1) {
-                  return const SizedBox(height: 80); 
-                }
-
-                // --- 3. EVENT CARDS ---
+                // 2. EMPTY STATE (Index 1 when empty)
                 if (displayEvents.isEmpty) {
                    return _buildEmptyState();
                 }
 
+                // 3. BOTTOM SPACER (Last Index)
+                if (index == displayEvents.length + 1) {
+                  return const SizedBox(height: 80); 
+                }
+
+                // 4. EVENT CARDS
                 return _buildEventCard(displayEvents[index - 1], context);
               },
             ),
@@ -330,22 +328,48 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
     );
   }
 
-  // --- WIDGET HELPERS ---
+  // --- UPDATED WIDGET HELPERS ---
   
   Widget _buildEmptyState() {
+    String message = "No events found";
+    IconData icon = Icons.event_busy;
+
+    if (_tabController.index == 0) {
+      // Check if we have events that are hidden because of registration
+      bool hiddenDueToRegistration = _events.any((e) {
+        if (e.status != 'published') return false; 
+        if (_selectedCategory != 'All' && e.category != _selectedCategory) return false;
+        
+        // Is it upcoming?
+        final end = _getEventEndTime(e);
+        if (!end.isAfter(DateTime.now())) return false; 
+
+        // Is it registered?
+        return _registeredEventIds.contains(e.id);
+      });
+
+      if (hiddenDueToRegistration) {
+        message = "There are no upcoming events\n(You've registered for all available events!)";
+        icon = Icons.done_all;
+      } else {
+        message = "There are no upcoming events";
+      }
+    } else {
+      message = "No past events found";
+    }
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.only(top: 50),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.event_busy, size: 64, color: Colors.grey[300]),
+            Icon(icon, size: 64, color: Colors.grey[300]),
             const SizedBox(height: 16),
             Text(
-              _tabController.index == 0 
-                  ? "No upcoming events found" 
-                  : "No past events found",
-              style: TextStyle(color: Colors.grey[600])
+              message,
+              style: TextStyle(color: Colors.grey[600], fontSize: 16),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -386,7 +410,6 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
   }
 
   Widget _buildEventCard(EventModel event, BuildContext context) {
-    // Correctly calculate if event has ended using helper
     final isEnded = DateTime.now().isAfter(_getEventEndTime(event));
 
     return Card(
@@ -401,7 +424,7 @@ class _EventDiscoveryScreenState extends State<EventDiscoveryScreen> with Single
             MaterialPageRoute(
               builder: (context) => ParticipantEventDetailScreen(event: event),
             ),
-          );
+          ).then((_) => _loadData()); // Refresh upon return
         },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
