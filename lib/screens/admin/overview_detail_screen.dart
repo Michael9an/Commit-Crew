@@ -3312,14 +3312,6 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
 
   String _formatDateRange(DateTimeRange? range) {
     if (range == null) return 'All Time';
-    
-    final now = DateTime.now();
-    final diff = now.difference(range.start).inDays;
-    
-    if (diff >= 6 && diff <= 7) return 'Last 7 Days';
-    if (diff >= 29 && diff <= 30) return 'Last 30 Days';
-    if (diff >= 89 && diff <= 90) return 'Last 90 Days';
-
     return '${DateFormat('MMM d').format(range.start)} - ${DateFormat('MMM d').format(range.end)}';
   }
 

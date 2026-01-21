@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart'; // Add this to pubspec.yaml if 
 import '../../models/club.dart';
 import '../../services/firestore_service.dart';
 import '../../services/storage_service.dart'; // Import StorageService
+import 'club_verification_screen.dart';
 
 class ClubProfileScreen extends StatefulWidget {
   final Club club;
@@ -241,6 +242,32 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
                   ),
                 ),
               ),
+              
+              const SizedBox(height: 12),
+
+              // ADDED: Upload Verification Button if not verified/rejected
+              if (widget.club.verificationStatus == 'not_verified' || 
+                  widget.club.isRejected) 
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12.0),
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                       Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ClubVerificationScreen(club: widget.club),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.upload_file),
+                    label: const Text('Upload Verification Document'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.orange[800],
+                      side: BorderSide(color: Colors.orange[800]!),
+                    ),
+                  ),
+                ),
+
               SizedBox(height: 24),
               _buildTextField(
                 controller: _nameController,
@@ -367,6 +394,7 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
     if (club.isRestricted) return Colors.red[100]!;
     if (club.isApproved) return Colors.green[100]!;
     if (club.isRejected) return Colors.red[100]!;
+    if (club.verificationStatus == 'not_verified') return Colors.grey[300]!;
     return Colors.orange[100]!;
   }
 
@@ -374,6 +402,7 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
     if (club.isRestricted) return Colors.red[800]!;
     if (club.isApproved) return Colors.green[800]!;
     if (club.isRejected) return Colors.red[800]!;
+    if (club.verificationStatus == 'not_verified') return Colors.grey[800]!;
     return Colors.orange[800]!;
   }
 
@@ -381,6 +410,7 @@ class _ClubProfileScreenState extends State<ClubProfileScreen> {
     if (club.isRestricted) return 'Restricted';
     if (club.isApproved) return 'Verified Club';
     if (club.isRejected) return 'Rejected';
+    if (club.verificationStatus == 'not_verified') return 'Not Verified';
     return 'Pending Approval';
   }
 }

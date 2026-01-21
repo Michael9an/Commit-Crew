@@ -235,6 +235,7 @@ class AuthService {
         'location': '',
         'categories': [],
         'approvalLetterUrl': '',
+        'verificationStatus': 'not_verified',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };

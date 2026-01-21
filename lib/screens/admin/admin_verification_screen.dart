@@ -83,10 +83,10 @@ class AdminVerificationScreen extends StatelessWidget {
             // Content
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
-                // Query clubs that have submitted verification or are pending
+                // Query clubs that have explicitly submitted verification
                 stream: FirebaseFirestore.instance
                     .collection('clubs')
-                    .where('status', whereIn: ['pending', 'pending_approval'])
+                    .where('verificationStatus', isEqualTo: 'submitted')
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {

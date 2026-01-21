@@ -120,7 +120,6 @@ class _ClubVerificationScreenState extends State<ClubVerificationScreen> {
                     Divider(),
                     _buildInfoRow('Club Name', widget.club.name),
                     _buildInfoRow('Description', widget.club.description),
-                    _buildInfoRow('Location', widget.club.location ?? 'N/A'),
                     _buildInfoRow('Email', widget.club.contactEmail ?? 'N/A'),
                   ],
                 ),

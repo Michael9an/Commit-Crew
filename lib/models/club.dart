@@ -300,6 +300,9 @@ class Club {
       case 'approved':
         return {'text': 'Approved', 'color': 'green'};
       case 'pending':
+        if (verificationStatus == 'not_verified') {
+          return {'text': 'Not Verified', 'color': 'grey'};
+        }
         return {'text': 'Pending Approval', 'color': 'orange'};
       case 'rejected':
         return {'text': 'Rejected', 'color': 'red'};
