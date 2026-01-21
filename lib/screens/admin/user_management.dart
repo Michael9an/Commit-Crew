@@ -24,129 +24,162 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('clubs').snapshots(),
+        builder: (context, clubsSnapshot) {
+          // Create a Set of valid club IDs for checking existence
+          final validClubIds = <String>{};
+          if (clubsSnapshot.hasData) {
+            for (var doc in clubsSnapshot.data!.docs) {
+              validClubIds.add(doc.id);
+            }
+          }
+
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (!_isSearching)
-                  const Text('User Management', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold))
-                else
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      textInputAction: TextInputAction.search,
-                      decoration: InputDecoration(
-                        hintText: 'Search by name or email...',
-                        border: InputBorder.none,
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.search),
-                          onPressed: () => setState(() {}),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    if (!_isSearching)
+                      const Text('User Management', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold))
+                    else
+                      Expanded(
+                        child: TextField(
+                          controller: _searchController,
+                          textInputAction: TextInputAction.search,
+                          decoration: InputDecoration(
+                            hintText: 'Search by name or email...',
+                            border: InputBorder.none,
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.search),
+                              onPressed: () => setState(() {}),
+                            ),
+                          ),
+                          onSubmitted: (value) => setState(() {}),
                         ),
                       ),
-                      onSubmitted: (value) => setState(() {}),
+                    IconButton(
+                      icon: Icon(_isSearching ? Icons.close : Icons.search),
+                      onPressed: () {
+                        setState(() {
+                          if (_isSearching) {
+                            _searchController.clear();
+                          }
+                          _isSearching = !_isSearching;
+                        });
+                      },
                     ),
-                  ),
-                IconButton(
-                  icon: Icon(_isSearching ? Icons.close : Icons.search),
-                  onPressed: () {
-                    setState(() {
-                      if (_isSearching) {
-                        _searchController.clear();
-                      }
-                      _isSearching = !_isSearching;
-                    });
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Total Counts Summary
+                StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance.collection('users').snapshots(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) return const SizedBox.shrink();
+                    
+                    final allUsers = snapshot.data!.docs;
+                    final participantCount = allUsers.where((doc) => (doc.data() as Map<String, dynamic>)['role'] == 'participant').length;
+                    
+                    // Count only clubs that have a valid club document
+                    final clubCount = allUsers.where((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      if (data['role'] != 'club') return false;
+                      // Check if associated clubId exists in clubs collection
+                      final clubIds = List<String>.from(data['clubIds'] ?? []);
+                      if (clubIds.isEmpty) return false;
+                      // Return true if at least one club ID is valid
+                      return clubIds.any((id) => validClubIds.contains(id));
+                    }).length;
+                    
+                    final adminCount = allUsers.where((doc) => (doc.data() as Map<String, dynamic>)['role'] == 'admin').length;
+
+                    return Container(
+                      padding: const EdgeInsets.all(4),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          Expanded(child: _buildCountItem('Participants', participantCount, 'Participant')),
+                          Expanded(child: _buildCountItem('Clubs', clubCount, 'Club')),
+                          Expanded(child: _buildCountItem('Admins', adminCount, 'Admin')),
+                        ],
+                      ),
+                    );
                   },
+                ),
+                
+                // User list
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('users')
+                        .where('role', isEqualTo: _selectedFilter.toLowerCase())
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      if (snapshot.hasError) {
+                        return Center(child: Text('Error: ${snapshot.error}'));
+                      }
+
+                      final users = snapshot.data?.docs ?? [];
+
+                      final filteredUsers = users.where((doc) {
+                        final data = doc.data() as Map<String, dynamic>;
+                        
+                        // If showing clubs, ensure valid club exists
+                        if (_selectedFilter == 'Club') {
+                           final clubIds = List<String>.from(data['clubIds'] ?? []);
+                           if (clubIds.isEmpty || !clubIds.any((id) => validClubIds.contains(id))) {
+                             return false;
+                           }
+                        }
+
+                        final name = (data['name'] ?? '').toString().toLowerCase();
+                        final email = (data['email'] ?? '').toString().toLowerCase();
+                        final search = _searchController.text.toLowerCase();
+                        return name.contains(search) || email.contains(search);
+                      }).toList();
+
+                      if (filteredUsers.isEmpty) {
+                        return Center(child: Text('No ${_selectedFilter.toLowerCase()} users found'));
+                      }
+
+                      return ListView.builder(
+                        itemCount: filteredUsers.length,
+                        itemBuilder: (context, index) {
+                          final userData = filteredUsers[index].data() as Map<String, dynamic>;
+                          final userId = filteredUsers[index].id;
+                          final name = userData['name'] ?? 'Unknown';
+                          final email = userData['email'] ?? 'No Email';
+                          final role = userData['role'] ?? 'participant';
+                          final photoUrl = userData['photoUrl']?.toString();
+                          final clubIds = List<String>.from(userData['clubIds'] ?? []);
+                          final createdAt = userData['createdAt'] != null 
+                              ? (userData['createdAt'] as Timestamp).toDate() 
+                              : null;
+
+                          return _buildUserCard(userId, name, role, email, createdAt, clubIds, photoUrl);
+                        },
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-
-            // Total Counts Summary
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('users').snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const SizedBox.shrink();
-                
-                final allUsers = snapshot.data!.docs;
-                final participantCount = allUsers.where((doc) => (doc.data() as Map<String, dynamic>)['role'] == 'participant').length;
-                final clubCount = allUsers.where((doc) => (doc.data() as Map<String, dynamic>)['role'] == 'club').length;
-                final adminCount = allUsers.where((doc) => (doc.data() as Map<String, dynamic>)['role'] == 'admin').length;
-
-                return Container(
-                  padding: const EdgeInsets.all(4),
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      Expanded(child: _buildCountItem('Participants', participantCount, 'Participant')),
-                      Expanded(child: _buildCountItem('Clubs', clubCount, 'Club')),
-                      Expanded(child: _buildCountItem('Admins', adminCount, 'Admin')),
-                    ],
-                  ),
-                );
-              },
-            ),
-            
-            // User list
-            Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('users')
-                    .where('role', isEqualTo: _selectedFilter.toLowerCase())
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (snapshot.hasError) {
-                    return Center(child: Text('Error: ${snapshot.error}'));
-                  }
-
-                  final users = snapshot.data?.docs ?? [];
-
-                  final filteredUsers = users.where((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    final name = (data['name'] ?? '').toString().toLowerCase();
-                    final email = (data['email'] ?? '').toString().toLowerCase();
-                    final search = _searchController.text.toLowerCase();
-                    return name.contains(search) || email.contains(search);
-                  }).toList();
-
-                  if (filteredUsers.isEmpty) {
-                    return Center(child: Text('No ${_selectedFilter.toLowerCase()} users found'));
-                  }
-
-                  return ListView.builder(
-                    itemCount: filteredUsers.length,
-                    itemBuilder: (context, index) {
-                      final userData = filteredUsers[index].data() as Map<String, dynamic>;
-                      final userId = filteredUsers[index].id;
-                      final name = userData['name'] ?? 'Unknown';
-                      final email = userData['email'] ?? 'No Email';
-                      final role = userData['role'] ?? 'participant';
-                      final photoUrl = userData['photoUrl']?.toString();
-                      final clubIds = List<String>.from(userData['clubIds'] ?? []);
-                      final createdAt = userData['createdAt'] != null 
-                          ? (userData['createdAt'] as Timestamp).toDate() 
-                          : null;
-
-                      return _buildUserCard(userId, name, role, email, createdAt, clubIds, photoUrl);
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
+          );
+        }
       ),
     );
   }

@@ -53,7 +53,7 @@ class _ContentModerationScreenState extends State<ContentModerationScreen> {
           final allReports = snapshot.data ?? [];
           
           final pendingCount = allReports.where((r) => r.status == 'pending').length;
-          final reviewingCount = allReports.where((r) => r.status == 'reviewing').length;
+          // final reviewingCount = allReports.where((r) => r.status == 'reviewing').length;
           final resolvedCount = allReports.where((r) => r.status == 'resolved').length;
           final dismissedCount = allReports.where((r) => r.status == 'dismissed').length;
 
@@ -133,7 +133,7 @@ class _ContentModerationScreenState extends State<ContentModerationScreen> {
                     child: Row(
                       children: [
                         _buildStatusTab('pending', 'Pending', pendingCount),
-                        _buildStatusTab('reviewing', 'Reviewing', reviewingCount),
+                        // _buildStatusTab('reviewing', 'Reviewing', reviewingCount), // Removed as per request
                         _buildStatusTab('resolved', 'Resolved', resolvedCount),
                         _buildStatusTab('dismissed', 'Dismissed', dismissedCount),
                       ],
