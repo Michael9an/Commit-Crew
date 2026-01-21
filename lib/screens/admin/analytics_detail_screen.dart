@@ -114,6 +114,21 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
         .map((doc) => EventModel.fromFirestore(doc.data(), doc.id))
         .toList();
 
+    // Create a map for event names (before filtering for date range)
+    final Map<String, String> allEventNames = {};
+    for (var event in events) {
+      allEventNames[event.id] = event.name;
+    }
+    
+    // IMPORTANT: If an event is deleted from Firestore, it won't be in the 'events' list.
+    // However, we might have reviews/reports referencing it.
+    // We should try to fetch the missing events to verify existence.
+    // BUT since we want to DELETE them from activities if they are deleted,
+    // we should simply filter out activities where the event name is not found in allEventNames.
+    // Note: This assumes 'events' query (attendees contains user) returns ALL relevant events the user interacted with.
+    // If a user reviewed an event but is NOT an attendee, this logic might hide it.
+    // However, given the requirement "if event is deleted...", strict filtering by valid events is safer.
+
     // 2. Get Reports Made (where userId == userId)
     final reportsSnapshot = await FirebaseFirestore.instance
         .collection('reports')
@@ -143,6 +158,40 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     var registrations = registersSnapshot.docs
         .map((doc) => Register.fromFirestore(doc.data(), documentId: doc.id))
         .toList();
+
+    // Check for missing events referenced in reports, reviews, or registrations
+    // This ensures that even if the user didn't attend (but reported/reviewed), we verify the event exists.
+    final Set<String> allReferencedIds = {};
+    for (var r in reports) allReferencedIds.add(r.eventId);
+    for (var r in reviews) allReferencedIds.add(r.eventId);
+    for (var r in registrations) allReferencedIds.add(r.eventId);
+    
+    final Set<String> existingIds = allEventNames.keys.toSet();
+    final Set<String> missingIds = allReferencedIds.difference(existingIds);
+    
+    if (missingIds.isNotEmpty) {
+      final List<String> idsList = missingIds.toList();
+      // Fetch in chunks of 10
+      for (var i = 0; i < idsList.length; i += 10) {
+        final end = (i + 10 < idsList.length) ? i + 10 : idsList.length;
+        final chunk = idsList.sublist(i, end);
+        
+        try {
+          final snapshot = await FirebaseFirestore.instance
+              .collection('events')
+              .where(FieldPath.documentId, whereIn: chunk)
+              .get();
+              
+          for (var doc in snapshot.docs) {
+             final data = doc.data();
+             final name = data['name'] as String? ?? 'Unknown Event';
+             allEventNames[doc.id] = name;
+          }
+        } catch (e) {
+          print('Error fetching missing events: $e');
+        }
+      }
+    }
 
     // Filter by date range if selected
     if (_selectedDateRange != null) {
@@ -197,15 +246,14 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     // 3. Build Timeline
     List<TimelineItem> items = [];
     
-    // Create a map for event names
-    final Map<String, String> eventNames = {};
-    for (var event in events) {
-      eventNames[event.id] = event.name;
-    }
+    // Use the allEventNames created earlier. Filter out deleted events (name null).
     
     // Add registrations and attendances from registrations list
     for (var reg in registrations) {
-      final eventName = eventNames[reg.eventId] ?? 'Unknown Event';
+      // If event is deleted (not in allEventNames), skip this activity
+      if (!allEventNames.containsKey(reg.eventId)) continue;
+      
+      final eventName = allEventNames[reg.eventId]!;
       
       // Registration activity
       items.add(TimelineItem(
@@ -225,6 +273,17 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     }
 
     for (var report in reports) {
+      // Reports usually store eventName in the document, but if we want to valid existence:
+      // If we assume user must be attendee to report, then we can filter.
+      // But user can report ANY event. We probably shouldn't hide reports even if event is deleted?
+      // User request said: "show report am event which unknown". So yes, hide it.
+      // BUT report.eventName is hardcoded in the report doc usually.
+      // Let's check if we have the ID in our events list.
+      // If report is stored with eventName snapshot, maybe we keep it?
+      // "delete it from recent activities... because it show report am event which unknown"
+      // This refers to my previous code that said 'unknown event'.
+      if (!allEventNames.containsKey(report.eventId)) continue;
+
       items.add(TimelineItem(
         date: report.createdAt,
         title: 'Reported ${report.eventName}',
@@ -232,11 +291,18 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
       ));
     }
 
+    // Count valid reviews for stats
+    int validReviewsCount = 0;
+
     for (var review in reviews) {
+      // If event is deleted (not in allEventNames), skip this activity
+      if (!allEventNames.containsKey(review.eventId)) continue;
+      
+      validReviewsCount++;
       if (review.createdAt != null) {
         items.add(TimelineItem(
           date: review.createdAt!,
-          title: 'Reviewed an event',
+          title: 'Reviewed ${allEventNames[review.eventId]!}',
           type: 'review',
           details: review.comment,
           id: review.id,
@@ -253,19 +319,19 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
     double spent = 0.0;
     List<Map<String, dynamic>> payments = [];
     
-    final Map<String, String> pEventNames = {};
-    for (var e in events) {
-      pEventNames[e.id] = e.name;
-    }
+    // Use allEventNames instead of rebuilding pEventNames
 
     // Also try to find event names from registrations if we have the event data somewhere
     // For now, rely on events loaded. 
 
     for (var reg in registrations) {
+       // If event deleted, skip payment info too? Probably yes for consistency
+       if (!allEventNames.containsKey(reg.eventId)) continue;
+
        if (reg.amountPaid > 0) {
          spent += reg.amountPaid;
          payments.add({
-           'eventName': pEventNames[reg.eventId] ?? 'Event',
+           'eventName': allEventNames[reg.eventId]!,
            'amount': reg.amountPaid,
            'date': reg.registrationDate,
          });
@@ -278,8 +344,8 @@ class _AnalyticsDetailScreenState extends State<AnalyticsDetailScreen> {
 
     _stats = {
       'Event ': events.length.toString(),
-      'Report': reports.length.toString(),
-      'Review': reviews.length.toString(),
+      'Report': reports.where((r) => allEventNames.containsKey(r.eventId)).length.toString(),
+      'Review': validReviewsCount.toString(),
     };
   }
 

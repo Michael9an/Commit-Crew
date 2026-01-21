@@ -1046,10 +1046,13 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                                   getTitlesWidget: (double value, TitleMeta meta) {
                                     final index = value.toInt();
                                     if (index >= 0 && index < _chartData.length) {
+                                      if (_chartData.length > 10 && index % 2 != 0) {
+                                        return const SizedBox();
+                                      }
                                       return Padding(
                                         padding: const EdgeInsets.only(top: 8.0),
                                         child: Text(
-                                          DateFormat('MM/dd').format(_chartData[index]['date']),
+                                          DateFormat('M/d').format(_chartData[index]['date']),
                                           style: const TextStyle(fontSize: 10),
                                         ),
                                       );
@@ -1245,10 +1248,13 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                                   getTitlesWidget: (double value, TitleMeta meta) {
                                     final index = value.toInt();
                                     if (index >= 0 && index < _chartData.length) {
+                                      if (_chartData.length > 10 && index % 2 != 0) {
+                                        return const SizedBox();
+                                      }
                                       return Padding(
                                         padding: const EdgeInsets.only(top: 8.0),
                                         child: Text(
-                                          DateFormat('MM/dd').format(_chartData[index]['date']),
+                                          DateFormat('M/d').format(_chartData[index]['date']),
                                           style: const TextStyle(fontSize: 10),
                                         ),
                                       );
@@ -1455,10 +1461,13 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                                   getTitlesWidget: (double value, TitleMeta meta) {
                                     final index = value.toInt();
                                     if (index >= 0 && index < _chartData.length) {
+                                      if (_chartData.length > 10 && index % 2 != 0) {
+                                        return const SizedBox();
+                                      }
                                       return Padding(
                                         padding: const EdgeInsets.only(top: 8.0),
                                         child: Text(
-                                          DateFormat('MM/dd').format(_chartData[index]['date']),
+                                          DateFormat('M/d').format(_chartData[index]['date']),
                                           style: const TextStyle(fontSize: 10),
                                         ),
                                       );
@@ -1672,10 +1681,13 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                                       getTitlesWidget: (value, meta) {
                                         final index = value.toInt();
                                         if (index >= 0 && index < _chartData.length) {
+                                          if (_chartData.length > 10 && index % 2 != 0) {
+                                            return const SizedBox();
+                                          }
                                           return Padding(
                                             padding: const EdgeInsets.only(top: 8.0),
                                             child: Text(
-                                              DateFormat('MM/dd').format(_chartData[index]['date']),
+                                              DateFormat('M/d').format(_chartData[index]['date']),
                                               style: const TextStyle(fontSize: 10),
                                             ),
                                           );
@@ -1808,10 +1820,13 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                                   getTitlesWidget: (double value, TitleMeta meta) {
                                     final index = value.toInt();
                                     if (index >= 0 && index < _chartData.length) {
+                                      if (_chartData.length > 10 && index % 2 != 0) {
+                                        return const SizedBox();
+                                      }
                                       return Padding(
                                         padding: const EdgeInsets.only(top: 8.0),
                                         child: Text(
-                                          DateFormat('MM/dd').format(_chartData[index]['date']),
+                                          DateFormat('M/d').format(_chartData[index]['date']),
                                           style: const TextStyle(fontSize: 10),
                                         ),
                                       );
@@ -2018,10 +2033,13 @@ class _OverviewDetailScreenState extends State<OverviewDetailScreen> {
                                   getTitlesWidget: (double value, TitleMeta meta) {
                                     final index = value.toInt();
                                     if (index >= 0 && index < _chartData.length) {
+                                      if (_chartData.length > 10 && index % 2 != 0) {
+                                        return const SizedBox();
+                                      }
                                       return Padding(
                                         padding: const EdgeInsets.only(top: 8.0),
                                         child: Text(
-                                          DateFormat('MM/dd').format(_chartData[index]['date']),
+                                          DateFormat('M/d').format(_chartData[index]['date']),
                                           style: const TextStyle(fontSize: 10),
                                         ),
                                       );

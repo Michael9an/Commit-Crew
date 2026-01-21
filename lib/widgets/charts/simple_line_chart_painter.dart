@@ -107,7 +107,7 @@ class LineChartPainter extends CustomPainter {
 
         if (shouldShowLabel) {
           final date = item['date'] as DateTime;
-          final dateStr = DateFormat('MM/dd').format(date);
+          final dateStr = DateFormat('M/d').format(date);
           _drawText(canvas, dateStr, Offset(x, topMargin + drawingHeight + 8), textStyle);
         }
     }
